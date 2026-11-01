@@ -61,7 +61,15 @@ app.use('/api/v1/activity', activityRouter);
 app.use('/api/v1/account', accountRouter);
 app.use('/api/v1/admin', adminRouter);
 
-// Health Check
+// Root & Health Check
+app.get('/', (req, res) => {
+  res.json({
+    status: 'online',
+    app: 'GOD x LIVE Backend API Gateway',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -77,8 +85,8 @@ async function bootstrap() {
   await keyService.ensureSeedKey();
   await botService.start();
 
-  server.listen(config.port, () => {
-    console.log(`🚀 Discord Control Hub API & Gateway running on http://localhost:${config.port}`);
+  server.listen(config.port, '0.0.0.0', () => {
+    console.log(`🚀 Discord Control Hub API & Gateway running on http://0.0.0.0:${config.port}`);
     console.log(`🌐 Dashboard frontend target: ${config.frontendUrl}`);
   });
 }
