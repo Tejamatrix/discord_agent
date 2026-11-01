@@ -1,4 +1,4 @@
-import { Client } from 'discord.js-selfbot-v13';
+import { Client, WebSocketShard } from 'discord.js-selfbot-v13';
 import {
   joinVoiceChannel as djsJoinVoiceChannel,
   createAudioPlayer,
@@ -181,7 +181,23 @@ export class AccountSlot {
       checkUpdate: false,
       autoRedeemNitro: false,
       waitGuildTimeout: 0, // Do not wait for 100+ guilds to finish streaming before emitting ready
+      retryLimit: 0,
+      restRequestTimeout: 5000,
     } as any);
+
+    // Direct WebSocket Gateway connection (bypasses REST /gateway endpoint that Cloudflare rate limits on datacenters)
+    (client.ws as any).connect = async function () {
+      const gatewayURL = 'wss://gateway.discord.gg';
+      this.gateway = `${gatewayURL}/`;
+      this.totalShards = 1;
+      this.shardQueue = new Set([0].map((id: number) => new (WebSocketShard as any)(this, id)));
+      return this.createShards();
+    };
+
+    client.on('debug', (info: string) => {
+      if (info.includes('Heartbeat') || info.includes('ping') || info.includes('Latency')) return;
+      console.log(`[Slot ${this.slotIndex + 1} Debug]`, info);
+    });
 
     this.client = client;
 
