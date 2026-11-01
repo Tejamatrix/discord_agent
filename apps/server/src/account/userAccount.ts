@@ -168,6 +168,10 @@ export class AccountSlot {
   public async connectWithToken(token: string): Promise<UserAccountProfile> {
     console.log(`[Tenant ${this.tenantId}][Slot ${this.slotIndex + 1}] Authenticating token via Discord Gateway...`);
 
+    if (!token || token.trim().length < 30) {
+      throw new Error('Invalid token: Discord tokens are typically 60-90 characters long. Make sure you pasted the full token.');
+    }
+
     // 1. Tear down existing connection if any
     await this.disconnect();
     this.currentToken = token;
@@ -200,7 +204,7 @@ export class AccountSlot {
       }
     });
 
-    // 3. Connect via Gateway with instant RAW packet recognition and generous 25s timeout
+    // 3. Connect via Gateway with instant RAW packet recognition and fast error events
     await new Promise<void>((resolve, reject) => {
       let isSettled = false;
 
@@ -232,7 +236,7 @@ export class AccountSlot {
             reject(new Error('Connection timed out. Discord did not respond in time. Please verify your token.'));
           }
         }
-      }, 25000);
+      }, 20000);
 
       client.once('ready', finishAuth);
 
@@ -240,6 +244,42 @@ export class AccountSlot {
       (client as any).on('raw', (packet: any) => {
         if (packet?.t === 'READY' && packet?.d?.user) {
           finishAuth();
+        }
+      });
+
+      // Catch Gateway disconnection or authentication failure immediately
+      client.on('shardDisconnect', (event: any) => {
+        if (!isSettled) {
+          isSettled = true;
+          clearTimeout(timeout);
+          try { client.destroy(); } catch {}
+          console.error(`[Tenant ${this.tenantId}][Slot ${this.slotIndex + 1}] Gateway disconnect code ${event?.code}: ${event?.reason}`);
+          if (event?.code === 4004) {
+            reject(new Error('Invalid Discord Account Token (Error 4004: Authentication Failed). Please grab a fresh token from Discord Web/App.'));
+          } else if (event?.code === 4008) {
+            reject(new Error('Discord rate limited this connection (Error 4008). Please wait 1-2 minutes and try again.'));
+          } else {
+            reject(new Error(`Discord Gateway disconnected (Code ${event?.code || 'unknown'}: ${event?.reason || 'Authentication closed'}).`));
+          }
+        }
+      });
+
+      client.on('invalidated', () => {
+        if (!isSettled) {
+          isSettled = true;
+          clearTimeout(timeout);
+          try { client.destroy(); } catch {}
+          reject(new Error('Discord session invalidated. Please provide a fresh token.'));
+        }
+      });
+
+      client.on('error', (err: any) => {
+        if (!isSettled) {
+          isSettled = true;
+          clearTimeout(timeout);
+          try { client.destroy(); } catch {}
+          console.error(`[Tenant ${this.tenantId}][Slot ${this.slotIndex + 1}] Gateway client error:`, err?.message);
+          reject(new Error(err?.message || 'Discord Gateway error encountered.'));
         }
       });
 
