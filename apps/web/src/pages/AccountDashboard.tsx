@@ -1434,9 +1434,17 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
                 disabled={connectingSlot || !slotTokenInput.trim()}
                 onClick={async () => {
                   setConnectingSlot(true);
-                  const result = await onConnectSlotToken(connectSlotModal, slotTokenInput.trim());
+                  let result = await onConnectSlotToken(connectSlotModal, slotTokenInput.trim());
+                  let ok = typeof result === 'boolean' ? result : result?.success;
+
+                  // Auto-retry once seamlessly on transient connection glitch
+                  if (!ok && typeof result === 'object' && result?.error && !result.error.includes('4004')) {
+                    await new Promise((r) => setTimeout(r, 800));
+                    result = await onConnectSlotToken(connectSlotModal, slotTokenInput.trim());
+                    ok = typeof result === 'boolean' ? result : result?.success;
+                  }
+
                   setConnectingSlot(false);
-                  const ok = typeof result === 'boolean' ? result : result?.success;
                   const errMsg = typeof result === 'object' && result?.error ? result.error : 'Failed to authenticate token for this slot.';
                   if (ok) {
                     setConnectSlotModal(null);
