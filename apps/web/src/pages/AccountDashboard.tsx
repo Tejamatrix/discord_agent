@@ -105,7 +105,7 @@ interface AccountDashboardProps {
   slots: SlotSummary[];
   activeSlotIndex: number;
   onSelectSlot: (slotIndex: number) => void;
-  onConnectSlotToken: (slotIndex: number, token: string) => Promise<boolean>;
+  onConnectSlotToken: (slotIndex: number, token: string) => Promise<{ success: boolean; error?: string } | boolean>;
   onDisconnectSlot: (slotIndex: number) => Promise<boolean>;
   onOpenAdminModal: () => void;
   onBroadcastPlay?: (soundId?: string, audioUrl?: string, boost?: boolean) => Promise<boolean>;
@@ -1434,16 +1434,18 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
                 disabled={connectingSlot || !slotTokenInput.trim()}
                 onClick={async () => {
                   setConnectingSlot(true);
-                  const ok = await onConnectSlotToken(connectSlotModal, slotTokenInput.trim());
+                  const result = await onConnectSlotToken(connectSlotModal, slotTokenInput.trim());
                   setConnectingSlot(false);
+                  const ok = typeof result === 'boolean' ? result : result?.success;
+                  const errMsg = typeof result === 'object' && result?.error ? result.error : 'Failed to authenticate token for this slot.';
                   if (ok) {
                     setConnectSlotModal(null);
                     setSlotTokenInput('');
                     setBanner({ text: `Account connected to Slot ${connectSlotModal + 1}!`, type: 'success' });
                     setTimeout(() => setBanner(null), 4000);
                   } else {
-                    setBanner({ text: 'Failed to authenticate token for this slot.', type: 'error' });
-                    setTimeout(() => setBanner(null), 5000);
+                    setBanner({ text: errMsg, type: 'error' });
+                    setTimeout(() => setBanner(null), 6000);
                   }
                 }}
                 className="btn-neo btn-neo-yellow px-4 py-1.5 text-xs font-black uppercase disabled:opacity-50"

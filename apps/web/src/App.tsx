@@ -221,14 +221,14 @@ export default function App() {
     }
   };
 
-  const handleConnectSlotToken = async (slotIndex: number, token: string): Promise<boolean> => {
+  const handleConnectSlotToken = async (slotIndex: number, token: string): Promise<{ success: boolean; error?: string }> => {
     const res = await api.connectSlot(slotIndex, token, activeKey || undefined, isAdmin);
     if (res.success && res.data) {
       await loadSlots();
       await handleSelectSlot(slotIndex);
-      return true;
+      return { success: true };
     }
-    return false;
+    return { success: false, error: res.error || 'Failed to authenticate token with Discord.' };
   };
 
   const handleDisconnectSlot = async (slotIndex: number): Promise<boolean> => {

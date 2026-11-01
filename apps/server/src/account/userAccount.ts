@@ -167,6 +167,7 @@ export class AccountSlot {
 
   public async connectWithToken(token: string): Promise<UserAccountProfile> {
     // 1. Direct REST validation
+    console.log(`[Tenant ${this.tenantId}][Slot ${this.slotIndex + 1}] Validating token against Discord API...`);
     const res = await fetch('https://discord.com/api/v10/users/@me', {
       headers: {
         Authorization: token,
@@ -175,8 +176,35 @@ export class AccountSlot {
     });
 
     if (!res.ok) {
-      const errData = (await res.json().catch(() => ({}))) as any;
-      throw new Error(errData.message || 'Invalid Discord Account Token.');
+      // Check if it's a Bot token instead of a User account token
+      try {
+        const botCheck = await fetch('https://discord.com/api/v10/users/@me', {
+          headers: {
+            Authorization: `Bot ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        if (botCheck.ok) {
+          const botUser = (await botCheck.json()) as any;
+          throw new Error(`This token belongs to a Discord Bot (@${botUser.username}), not a User account. Slots require a Discord User token or Bluecord JSON.`);
+        }
+      } catch (checkErr: any) {
+        if (checkErr.message.includes('Discord Bot')) throw checkErr;
+      }
+
+      const errText = await res.text();
+      let errData: any = {};
+      try {
+        errData = JSON.parse(errText);
+      } catch {}
+
+      console.error(`[Tenant ${this.tenantId}][Slot ${this.slotIndex + 1}] Discord REST rejection (${res.status}):`, errText);
+      if (res.status === 401) {
+        throw new Error('401 Unauthorized: Invalid or expired Discord account token. If you changed your password or logged out, Discord generated a new token.');
+      } else if (res.status === 429) {
+        throw new Error('429 Rate Limit: Discord is temporarily rate limiting requests. Please wait a minute and try again.');
+      }
+      throw new Error(errData.message || `Discord rejected token (HTTP ${res.status}): ${errText.slice(0, 100)}`);
     }
 
     const userData = (await res.json()) as any;
