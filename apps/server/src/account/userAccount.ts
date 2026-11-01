@@ -166,76 +166,28 @@ export class AccountSlot {
   }
 
   public async connectWithToken(token: string): Promise<UserAccountProfile> {
-    // 1. Direct REST validation
-    console.log(`[Tenant ${this.tenantId}][Slot ${this.slotIndex + 1}] Validating token against Discord API...`);
-    const res = await fetch('https://discord.com/api/v10/users/@me', {
-      headers: {
-        Authorization: token,
-        'Content-Type': 'application/json',
-      },
-    });
+    console.log(`[Tenant ${this.tenantId}][Slot ${this.slotIndex + 1}] Authenticating token via Discord Gateway...`);
 
-    if (!res.ok) {
-      // Check if it's a Bot token instead of a User account token
-      try {
-        const botCheck = await fetch('https://discord.com/api/v10/users/@me', {
-          headers: {
-            Authorization: `Bot ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
-        if (botCheck.ok) {
-          const botUser = (await botCheck.json()) as any;
-          throw new Error(`This token belongs to a Discord Bot (@${botUser.username}), not a User account. Slots require a Discord User token or Bluecord JSON.`);
-        }
-      } catch (checkErr: any) {
-        if (checkErr.message.includes('Discord Bot')) throw checkErr;
-      }
-
-      const errText = await res.text();
-      let errData: any = {};
-      try {
-        errData = JSON.parse(errText);
-      } catch {}
-
-      console.error(`[Tenant ${this.tenantId}][Slot ${this.slotIndex + 1}] Discord REST rejection (${res.status}):`, errText);
-      if (res.status === 401) {
-        throw new Error('401 Unauthorized: Invalid or expired Discord account token. If you changed your password or logged out, Discord generated a new token.');
-      } else if (res.status === 429) {
-        throw new Error('429 Rate Limit: Discord is temporarily rate limiting requests. Please wait a minute and try again.');
-      }
-      throw new Error(errData.message || `Discord rejected token (HTTP ${res.status}): ${errText.slice(0, 100)}`);
-    }
-
-    const userData = (await res.json()) as any;
-    const avatarUrl = userData.avatar
-      ? `https://cdn.discordapp.com/avatars/${userData.id}/${userData.avatar}.png?size=256`
-      : `https://cdn.discordapp.com/embed/avatars/${parseInt(userData.discriminator || '0', 10) % 5}.png`;
-
-    // 2. Tear down existing connection if any
+    // 1. Tear down existing connection if any
     await this.disconnect();
-
     this.currentToken = token;
-    this.profile = {
-      id: userData.id,
-      username: userData.username,
-      discriminator: userData.discriminator,
-      global_name: userData.global_name,
-      avatar: userData.avatar,
-      avatar_url: avatarUrl,
-      banner: userData.banner,
-      accent_color: userData.accent_color,
-      email: userData.email,
-      phone: userData.phone,
-      mfa_enabled: userData.mfa_enabled,
-      premium_type: userData.premium_type,
-      token: token,
-    };
 
-    // 3. Initialize discord.js-selfbot-v13 Client
+    // 2. Initialize discord.js-selfbot-v13 Client
     const client = new Client({
       checkUpdate: false,
       autoRedeemNitro: false,
+      ws: {
+        properties: {
+          os: 'Windows',
+          browser: 'Discord Client',
+          release_channel: 'stable',
+          client_version: '1.0.9168',
+          os_version: '10.0.19045',
+          os_arch: 'x64',
+          system_locale: 'en-US',
+          client_build_number: 334185,
+        },
+      },
     } as any);
 
     this.client = client;
@@ -259,33 +211,78 @@ export class AccountSlot {
       }
     });
 
-    await new Promise<void>((resolve) => {
+    // 3. Connect via Gateway directly (bypasses Cloudflare REST 429 rate limit on datacenter IPs)
+    await new Promise<void>((resolve, reject) => {
+      let isSettled = false;
+
       const timeout = setTimeout(() => {
-        resolve(); // Profile already validated, gateway can complete in background
-      }, 10000);
+        if (!isSettled) {
+          isSettled = true;
+          if (client.user) {
+            resolve();
+          } else {
+            try { client.destroy(); } catch {}
+            reject(new Error('Connection timed out. Discord did not respond in time. Please verify your token.'));
+          }
+        }
+      }, 15000);
 
       client.once('ready', () => {
-        clearTimeout(timeout);
-        this.isConnected = true;
-        console.log(`✅ [Tenant ${this.tenantId}][Slot ${this.slotIndex + 1}] Logged in as ${client.user?.tag} (${client.user?.id})`);
+        if (!isSettled) {
+          isSettled = true;
+          clearTimeout(timeout);
+          this.isConnected = true;
+          console.log(`✅ [Tenant ${this.tenantId}][Slot ${this.slotIndex + 1}] Gateway authenticated as ${client.user?.tag} (${client.user?.id})`);
 
-        // Check if user is already in a VC
-        const active = this.findActiveVoiceChannel();
-        if (active) {
-          this.currentVoiceGuildId = active.guildId;
-          this.currentVoiceChannelId = active.channelId;
-          this.currentVoiceChannelName = active.channelName;
+          // Check if user is already in a VC
+          const active = this.findActiveVoiceChannel();
+          if (active) {
+            this.currentVoiceGuildId = active.guildId;
+            this.currentVoiceChannelId = active.channelId;
+            this.currentVoiceChannelName = active.channelName;
+          }
+          resolve();
         }
-
-        resolve();
       });
 
       client.login(token).catch((err: any) => {
-        clearTimeout(timeout);
-        console.warn(`[Tenant ${this.tenantId}][Slot ${this.slotIndex + 1}] Gateway login warning:`, err.message);
-        resolve();
+        if (!isSettled) {
+          isSettled = true;
+          clearTimeout(timeout);
+          try { client.destroy(); } catch {}
+          console.error(`[Tenant ${this.tenantId}][Slot ${this.slotIndex + 1}] Gateway login rejected:`, err?.message);
+          const msg = (err?.message || '').toLowerCase();
+          if (msg.includes('token_invalid') || msg.includes('invalid token') || msg.includes('an invalid token was provided')) {
+            reject(new Error('Invalid Discord Account Token. Please copy a fresh token from Discord Web/App.'));
+          } else if (msg.includes('rate limit') || msg.includes('429')) {
+            reject(new Error('Discord rate limit on gateway. Please wait a moment and try again.'));
+          } else {
+            reject(new Error(err?.message || 'Failed to authenticate token with Discord Gateway.'));
+          }
+        }
       });
     });
+
+    const user = client.user!;
+    const avatarUrl = user.avatar
+      ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=256`
+      : `https://cdn.discordapp.com/embed/avatars/${parseInt(user.discriminator || '0', 10) % 5}.png`;
+
+    this.profile = {
+      id: user.id,
+      username: user.username,
+      discriminator: user.discriminator || '0',
+      global_name: (user as any).globalName || user.username,
+      avatar: user.avatar,
+      avatar_url: avatarUrl,
+      banner: user.banner,
+      accent_color: (user as any).accentColor || null,
+      email: (user as any).email || null,
+      phone: (user as any).phone || null,
+      mfa_enabled: Boolean((user as any).mfaEnabled),
+      premium_type: (user as any).premiumType || 0,
+      token: token,
+    };
 
     this.isConnected = true;
     this.notifyState();
