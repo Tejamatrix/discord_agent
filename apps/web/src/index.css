@@ -1,0 +1,197 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #F4F1EA;
+    color: #121212;
+    font-family: 'Outfit', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    letter-spacing: -0.01em;
+    overflow-x: hidden;
+  }
+}
+
+/* Neo-Brutalism Core Utilities */
+.card-neo {
+  background-color: #FFFFFF;
+  border: 3px solid #000000;
+  box-shadow: 4px 4px 0px 0px #000000;
+  border-radius: 14px;
+  transition: all 0.15s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.card-neo-yellow {
+  background-color: #FFE600;
+  border: 3px solid #000000;
+  box-shadow: 5px 5px 0px 0px #000000;
+  border-radius: 14px;
+}
+
+.card-neo-purple {
+  background-color: #EDE9FE;
+  border: 3px solid #000000;
+  box-shadow: 5px 5px 0px 0px #000000;
+  border-radius: 14px;
+}
+
+.card-neo-lime {
+  background-color: #DCFCE7;
+  border: 3px solid #000000;
+  box-shadow: 5px 5px 0px 0px #000000;
+  border-radius: 14px;
+}
+
+.card-neo-blue {
+  background-color: #E0F2FE;
+  border: 3px solid #000000;
+  box-shadow: 5px 5px 0px 0px #000000;
+  border-radius: 14px;
+}
+
+/* Interactive Neo-Brutalist Buttons */
+.btn-neo {
+  border: 2.5px solid #000000;
+  box-shadow: 3px 3px 0px 0px #000000;
+  border-radius: 10px;
+  font-weight: 800;
+  transition: all 0.12s cubic-bezier(0.2, 0.8, 0.2, 1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-neo:hover:not(:disabled) {
+  transform: translate(-1.5px, -1.5px);
+  box-shadow: 4.5px 4.5px 0px 0px #000000;
+}
+
+.btn-neo:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0px 0px #000000;
+}
+
+.btn-neo-yellow {
+  background-color: #FFE600;
+  color: #000000;
+}
+.btn-neo-yellow:hover:not(:disabled) {
+  background-color: #FFEA2E;
+}
+
+.btn-neo-purple {
+  background-color: #A78BFA;
+  color: #000000;
+}
+.btn-neo-purple:hover:not(:disabled) {
+  background-color: #B49CFA;
+}
+
+.btn-neo-lime {
+  background-color: #4ADE80;
+  color: #000000;
+}
+.btn-neo-lime:hover:not(:disabled) {
+  background-color: #6EE7B7;
+}
+
+.btn-neo-coral {
+  background-color: #FF6B6B;
+  color: #000000;
+}
+.btn-neo-coral:hover:not(:disabled) {
+  background-color: #FF8787;
+}
+
+.btn-neo-white {
+  background-color: #FFFFFF;
+  color: #000000;
+}
+.btn-neo-white:hover:not(:disabled) {
+  background-color: #F8FAFC;
+}
+
+.btn-neo-black {
+  background-color: #000000;
+  color: #FFFFFF;
+}
+.btn-neo-black:hover:not(:disabled) {
+  background-color: #1F2937;
+}
+
+/* Neo Inputs */
+.input-neo {
+  border: 2.5px solid #000000;
+  box-shadow: 3px 3px 0px 0px #000000;
+  border-radius: 10px;
+  background-color: #FFFFFF;
+  color: #000000;
+  font-weight: 600;
+  outline: none;
+  transition: all 0.12s ease;
+}
+
+.input-neo:focus {
+  box-shadow: 4.5px 4.5px 0px 0px #000000;
+  background-color: #FFFEF5;
+}
+
+/* Neo Badges */
+.badge-neo {
+  border: 2px solid #000000;
+  box-shadow: 2px 2px 0px 0px #000000;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-radius: 6px;
+}
+
+/* Neo Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #EAE6DC;
+  border-left: 2px solid #000000;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #000000;
+  border: 1px solid #FFE600;
+}
+
+/* Neo Brutalist Range Slider */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 10px;
+  border-radius: 6px;
+  border: 2px solid #000000;
+  background: #FFFFFF;
+  box-shadow: 2px 2px 0px 0px #000000;
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: #FFE600;
+  cursor: pointer;
+  border: 2.5px solid #000000;
+  box-shadow: 2px 2px 0px 0px #000000;
+  transition: transform 0.12s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  background: #FFEA2E;
+}
+
+input[type="range"]::-webkit-slider-thumb:active {
+  transform: scale(0.95);
+}

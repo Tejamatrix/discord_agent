@@ -1,0 +1,32 @@
+{
+  "name": "discord-control-hub",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Discord Control Hub - Multi-tenant SaaS Dashboard & Bot Management",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:server": "npm --workspace=apps/server run dev",
+    "dev:web": "npm --workspace=apps/web run dev",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm --workspace=apps/server run test",
+    "start": "npm --workspace=apps/server run start"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "dashboard",
+    "saas",
+    "music",
+    "voice"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@discordjs/voice": "^0.19.2",
+    "@snazzah/davey": "^0.1.12"
+  }
+}

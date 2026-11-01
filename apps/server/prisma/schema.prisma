@@ -1,0 +1,167 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id              String             @id @default(uuid())
+  discord_user_id String             @unique
+  username        String
+  avatar          String?
+  created_at      DateTime           @default(now())
+
+  sessions        Session[]
+  guild_access    UserGuildAccess[]
+  activity_logs   ActivityLog[]
+  announcements   Announcement[]
+
+  @@map("users")
+}
+
+model Session {
+  id           String    @id @default(uuid())
+  user_id      String
+  session_hash String    @unique
+  expires_at   DateTime
+  created_at   DateTime  @default(now())
+
+  user         User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model Guild {
+  id               String            @id @default(uuid())
+  discord_guild_id String            @unique
+  name             String
+  icon             String?
+  created_at       DateTime          @default(now())
+
+  installations    Installation[]
+  user_access      UserGuildAccess[]
+  music_sessions   MusicSession[]
+  announcements    Announcement[]
+  settings         Setting[]
+  activity_logs    ActivityLog[]
+
+  @@map("guilds")
+}
+
+model Installation {
+  id           String    @id @default(uuid())
+  guild_id     String
+  bot_status   String    @default("offline") // online, offline, idle, dnd
+  installed_at DateTime  @default(now())
+
+  guild        Guild     @relation(fields: [guild_id], references: [id], onDelete: Cascade)
+
+  @@map("installations")
+}
+
+model UserGuildAccess {
+  id               String    @id @default(uuid())
+  user_id          String
+  guild_id         String
+  permission_level String    @default("admin") // admin, manager, member
+
+  user             User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  guild            Guild     @relation(fields: [guild_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, guild_id])
+  @@map("user_guild_access")
+}
+
+model MusicSession {
+  id               String       @id @default(uuid())
+  guild_id         String       @unique
+  voice_channel_id String?
+  current_track    String?      // JSON string of MusicTrack
+  playback_status  String       @default("idle") // playing, paused, stopped, idle
+  volume           Int          @default(80)
+
+  guild            Guild        @relation(fields: [guild_id], references: [id], onDelete: Cascade)
+  queue            MusicQueue[]
+
+  @@map("music_sessions")
+}
+
+model MusicQueue {
+  id               String       @id @default(uuid())
+  session_id       String
+  track_title      String
+  source_reference String
+  position         Int
+
+  session          MusicSession @relation(fields: [session_id], references: [id], onDelete: Cascade)
+
+  @@map("music_queue")
+}
+
+model Announcement {
+  id         String   @id @default(uuid())
+  guild_id   String
+  channel_id String
+  message    String
+  created_by String
+  created_at DateTime @default(now())
+
+  guild      Guild    @relation(fields: [guild_id], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [created_by], references: [id], onDelete: Cascade)
+
+  @@map("announcements")
+}
+
+model Setting {
+  id            String @id @default(uuid())
+  guild_id      String
+  setting_key   String
+  setting_value String
+
+  guild         Guild  @relation(fields: [guild_id], references: [id], onDelete: Cascade)
+
+  @@unique([guild_id, setting_key])
+  @@map("settings")
+}
+
+model ActivityLog {
+  id         String   @id @default(uuid())
+  user_id    String
+  guild_id   String?
+  action     String
+  status     String   @default("success") // success, failed, info
+  created_at DateTime @default(now())
+
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  guild      Guild?   @relation(fields: [guild_id], references: [id], onDelete: SetNull)
+
+  @@map("activity_logs")
+}
+
+model AccessKey {
+  id          String    @id @default(uuid())
+  key         String    @unique
+  max_tokens  Int       @default(1) // 1 or 3 tokens allowed
+  sound_tier  String    @default("standard") // 'standard' (loud 100%) or 'admin_peaks' (high peaks 300%)
+  label       String?   // friendly name / note / assigned client
+  is_active   Boolean   @default(true)
+  redeemed_by String?   // email or identifier of redeeming user
+  redeemed_at DateTime?
+  created_at  DateTime  @default(now())
+
+  @@map("access_keys")
+}
+
+model AdminEmail {
+  id         String   @id @default(uuid())
+  email      String   @unique
+  password   String?
+  role       String   @default("admin") // "owner" or "admin"
+  added_by   String?
+  created_at DateTime @default(now())
+
+  @@map("admin_emails")
+}
