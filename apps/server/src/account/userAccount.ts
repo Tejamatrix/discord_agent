@@ -172,22 +172,11 @@ export class AccountSlot {
     await this.disconnect();
     this.currentToken = token;
 
-    // 2. Initialize discord.js-selfbot-v13 Client
+    // 2. Initialize discord.js-selfbot-v13 Client with instant ready handling
     const client = new Client({
       checkUpdate: false,
       autoRedeemNitro: false,
-      ws: {
-        properties: {
-          os: 'Windows',
-          browser: 'Discord Client',
-          release_channel: 'stable',
-          client_version: '1.0.9168',
-          os_version: '10.0.19045',
-          os_arch: 'x64',
-          system_locale: 'en-US',
-          client_build_number: 334185,
-        },
-      },
+      waitGuildTimeout: 0, // Do not wait for 100+ guilds to finish streaming before emitting ready
     } as any);
 
     this.client = client;
@@ -211,9 +200,27 @@ export class AccountSlot {
       }
     });
 
-    // 3. Connect via Gateway directly (bypasses Cloudflare REST 429 rate limit on datacenter IPs)
+    // 3. Connect via Gateway with instant RAW packet recognition and generous 25s timeout
     await new Promise<void>((resolve, reject) => {
       let isSettled = false;
+
+      const finishAuth = () => {
+        if (!isSettled) {
+          isSettled = true;
+          clearTimeout(timeout);
+          this.isConnected = true;
+          console.log(`✅ [Tenant ${this.tenantId}][Slot ${this.slotIndex + 1}] Gateway authenticated as ${client.user?.tag || 'User'} (${client.user?.id || 'id'})`);
+
+          // Check if user is already in a VC
+          const active = this.findActiveVoiceChannel();
+          if (active) {
+            this.currentVoiceGuildId = active.guildId;
+            this.currentVoiceChannelId = active.channelId;
+            this.currentVoiceChannelName = active.channelName;
+          }
+          resolve();
+        }
+      };
 
       const timeout = setTimeout(() => {
         if (!isSettled) {
@@ -225,23 +232,14 @@ export class AccountSlot {
             reject(new Error('Connection timed out. Discord did not respond in time. Please verify your token.'));
           }
         }
-      }, 15000);
+      }, 25000);
 
-      client.once('ready', () => {
-        if (!isSettled) {
-          isSettled = true;
-          clearTimeout(timeout);
-          this.isConnected = true;
-          console.log(`✅ [Tenant ${this.tenantId}][Slot ${this.slotIndex + 1}] Gateway authenticated as ${client.user?.tag} (${client.user?.id})`);
+      client.once('ready', finishAuth);
 
-          // Check if user is already in a VC
-          const active = this.findActiveVoiceChannel();
-          if (active) {
-            this.currentVoiceGuildId = active.guildId;
-            this.currentVoiceChannelId = active.channelId;
-            this.currentVoiceChannelName = active.channelName;
-          }
-          resolve();
+      // Instant gateway RAW packet listener - fires within ~500ms of Gateway handshake
+      (client as any).on('raw', (packet: any) => {
+        if (packet?.t === 'READY' && packet?.d?.user) {
+          finishAuth();
         }
       });
 
@@ -263,24 +261,24 @@ export class AccountSlot {
       });
     });
 
-    const user = client.user!;
-    const avatarUrl = user.avatar
+    const user = client.user;
+    const avatarUrl = user?.avatar
       ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=256`
-      : `https://cdn.discordapp.com/embed/avatars/${parseInt(user.discriminator || '0', 10) % 5}.png`;
+      : `https://cdn.discordapp.com/embed/avatars/${parseInt(user?.discriminator || '0', 10) % 5}.png`;
 
     this.profile = {
-      id: user.id,
-      username: user.username,
-      discriminator: user.discriminator || '0',
-      global_name: (user as any).globalName || user.username,
-      avatar: user.avatar,
+      id: user?.id || 'unknown',
+      username: user?.username || 'Discord User',
+      discriminator: user?.discriminator || '0',
+      global_name: (user as any)?.globalName || user?.username || 'User',
+      avatar: user?.avatar || null,
       avatar_url: avatarUrl,
-      banner: user.banner,
-      accent_color: (user as any).accentColor || null,
-      email: (user as any).email || null,
-      phone: (user as any).phone || null,
-      mfa_enabled: Boolean((user as any).mfaEnabled),
-      premium_type: (user as any).premiumType || 0,
+      banner: user?.banner || null,
+      accent_color: (user as any)?.accentColor || null,
+      email: (user as any)?.email || null,
+      phone: (user as any)?.phone || null,
+      mfa_enabled: Boolean((user as any)?.mfaEnabled),
+      premium_type: (user as any)?.premiumType || 0,
       token: token,
     };
 
@@ -669,28 +667,37 @@ export class UserAccountSession {
   }
 
   public extractToken(input: string): string {
-    const trimmed = input.trim();
-    if (!trimmed) throw new Error('Token input cannot be empty');
+    let clean = input.trim();
+    if (!clean) throw new Error('Token input cannot be empty');
 
-    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    if (clean.startsWith('{') && clean.endsWith('}')) {
       try {
-        const parsed = JSON.parse(trimmed);
+        const parsed = JSON.parse(clean);
         const possibleKeys = ['token', 'authorization', 'auth', 'userToken', 'user_token', 'account_token', 'access_token'];
         for (const key of possibleKeys) {
           if (parsed[key] && typeof parsed[key] === 'string') {
-            return parsed[key].trim().replace(/^Bot\s+/i, '');
+            clean = parsed[key].trim();
+            break;
           }
         }
-        const values = Object.values(parsed);
-        for (const v of values) {
-          if (typeof v === 'string' && v.length > 20) {
-            return v.trim().replace(/^Bot\s+/i, '');
+        if (clean.startsWith('{')) {
+          const values = Object.values(parsed);
+          for (const v of values) {
+            if (typeof v === 'string' && v.length > 20) {
+              clean = v.trim();
+              break;
+            }
           }
         }
       } catch (e) {}
     }
 
-    return trimmed.replace(/^["']|["']$/g, '').replace(/^Bot\s+/i, '');
+    return clean
+      .replace(/^["'`]|["'`]$/g, '')
+      .replace(/^authorization:\s*/i, '')
+      .replace(/^bearer\s*/i, '')
+      .replace(/^bot\s*/i, '')
+      .trim();
   }
 
   public getActiveSlot(): AccountSlot {
