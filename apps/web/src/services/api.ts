@@ -27,9 +27,12 @@ class ApiClient {
     }
   }
 
-  public setAdminSession(email: string | null, isAdmin: boolean) {
+  public setAdminSession(email: string | null, isAdmin: boolean, token?: string | null) {
     this.adminEmail = email;
     this.isAdmin = isAdmin;
+    if (token) {
+      this.setToken(token);
+    }
     if (email && isAdmin) {
       localStorage.setItem('hub_admin_email', email);
       localStorage.setItem('hub_is_admin', 'true');
@@ -38,6 +41,7 @@ class ApiClient {
     } else {
       localStorage.removeItem('hub_admin_email');
       localStorage.removeItem('hub_is_admin');
+      this.setToken(null);
     }
   }
 

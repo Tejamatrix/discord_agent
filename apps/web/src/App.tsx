@@ -455,7 +455,7 @@ export default function App() {
       {isAdmin && isAdminModalOpen && (
         <AdminDashboardModal
           onClose={() => setIsAdminModalOpen(false)}
-          adminEmail={adminEmail || 'palisettisunitha@gmail.com'}
+          adminEmail={adminEmail || 'admin'}
           onLogoutAdmin={handleLogout}
         />
       )}

@@ -10,8 +10,8 @@ export interface AdminRecord {
   created_at: Date;
 }
 
-export const OWNER_EMAIL = 'palisettisunitha@gmail.com';
-export const OWNER_PASSWORD = config.adminPassword || 'toman@12112';
+export const OWNER_EMAIL = (config.adminEmail || process.env.ADMIN_EMAIL || 'palisettisunitha@gmail.com').toLowerCase();
+export const OWNER_PASSWORD = (config.adminPassword || process.env.ADMIN_PASSWORD || 'toman@12112').trim();
 
 class AdminService {
   private memoryAdmins: Set<string> = new Set([OWNER_EMAIL.toLowerCase()]);
@@ -149,7 +149,7 @@ class AdminService {
           ...records.map((r) => ({
             id: r.id,
             email: r.email,
-            password: r.password || null,
+            password: '••••••••',
             role: (r.role as 'owner' | 'admin') || 'admin',
             added_by: r.added_by,
             created_at: r.created_at,
@@ -160,7 +160,7 @@ class AdminService {
       return records.map((r) => ({
         id: r.id,
         email: r.email,
-        password: r.email.toLowerCase() === OWNER_EMAIL.toLowerCase() ? '••••••••' : (r.password || null),
+        password: '••••••••',
         role: r.email.toLowerCase() === OWNER_EMAIL.toLowerCase() ? 'owner' : ((r.role as any) || 'admin'),
         added_by: r.added_by,
         created_at: r.created_at,

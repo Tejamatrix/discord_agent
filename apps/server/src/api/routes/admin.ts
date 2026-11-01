@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import jwt from 'jsonwebtoken';
 import { keyService } from '../../services/keyService';
 import { adminService, OWNER_EMAIL } from '../../services/adminService';
 import { tenantAccountManager, userAccountManager } from '../../account/userAccount';
@@ -8,16 +9,27 @@ const router = Router();
 
 // Middleware to verify admin authentication
 const requireAdmin = async (req: any, res: any, next: any) => {
-  const adminHeader = req.headers['x-admin-email'] || req.headers['authorization'];
-  let email = '';
-  if (typeof adminHeader === 'string') {
-    email = adminHeader.replace(/^Bearer\s+/i, '').trim().toLowerCase();
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const rawToken = authHeader.substring(7).trim();
+    try {
+      const decoded: any = jwt.verify(rawToken, config.jwtSecret);
+      if (decoded && decoded.email && (await adminService.isAdmin(decoded.email))) {
+        req.adminEmail = decoded.email.toLowerCase();
+        req.isOwner = adminService.isOwner(decoded.email);
+        return next();
+      }
+    } catch {}
   }
 
-  if (email && (await adminService.isAdmin(email))) {
-    req.adminEmail = email;
-    req.isOwner = adminService.isOwner(email);
-    return next();
+  const adminHeader = req.headers['x-admin-email'];
+  if (typeof adminHeader === 'string') {
+    const email = adminHeader.trim().toLowerCase();
+    if (email && (await adminService.isAdmin(email))) {
+      req.adminEmail = email;
+      req.isOwner = adminService.isOwner(email);
+      return next();
+    }
   }
 
   return res.status(403).json({
@@ -57,9 +69,16 @@ router.post('/login', async (req, res) => {
     }
 
     const isRootOwner = adminService.isOwner(cleanEmail);
+    const token = jwt.sign(
+      { email: cleanEmail, role: isRootOwner ? 'owner' : 'admin', isOwner: isRootOwner },
+      config.jwtSecret,
+      { expiresIn: '7d' }
+    );
+
     return res.json({
       success: true,
       data: {
+        token,
         isAdmin: true,
         isOwner: isRootOwner,
         email: cleanEmail,
@@ -67,7 +86,7 @@ router.post('/login', async (req, res) => {
         maxTokens: 10,
         soundTier: 'admin_peaks',
         message: isRootOwner
-          ? 'Welcome Owner Palisetti Sunitha to Superadmin Console!'
+          ? 'Welcome to Superadmin Console!'
           : 'Welcome to Admin Control Dashboard!',
       },
     });
@@ -88,7 +107,7 @@ router.get('/status', requireAdmin, async (req: any, res) => {
     res.json({
       success: true,
       data: {
-        ownerEmail: OWNER_EMAIL,
+        ownerEmail: req.isOwner ? OWNER_EMAIL : '••••••••@protected',
         adminEmail: req.adminEmail,
         isOwner: req.isOwner,
         totalAdmins: admins.length,
@@ -115,7 +134,7 @@ router.get('/admins', requireAdmin, async (req: any, res) => {
     res.json({
       success: true,
       data: {
-        ownerEmail: OWNER_EMAIL,
+        ownerEmail: req.isOwner ? OWNER_EMAIL : '••••••••@protected',
         isOwner: req.isOwner,
         admins,
       },

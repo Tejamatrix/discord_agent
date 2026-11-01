@@ -63,7 +63,7 @@ export const AccessKeyGateModal: React.FC<AccessKeyGateModalProps> = ({
     setLoading(false);
 
     if (res.success && res.data) {
-      api.setAdminSession(res.data.email, true);
+      api.setAdminSession(res.data.email, true, res.data.token);
       onAdminAuthenticated(res.data);
     } else {
       setError(res.error || 'Invalid administrator email or password.');

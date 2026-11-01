@@ -390,7 +390,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                   <span>AUTHORIZED ADMINISTRATORS ({admins.length})</span>
                 </h3>
                 <p className="text-[11px] font-bold text-gray-600 mt-0.5">
-                  Superadmin Owner: <strong className="text-black">palisettisunitha@gmail.com</strong>. The owner can delegate admin access to other email addresses.
+                  Superadmin Owner: <strong className="text-black">{adminEmail || 'Root Superadmin'}</strong>. The owner can delegate admin access to other email addresses.
                 </p>
               </div>
 
@@ -463,7 +463,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                 </thead>
                 <tbody className="divide-y divide-black/10">
                   {admins.map((adm) => {
-                    const isOwner = adm.email.toLowerCase() === 'palisettisunitha@gmail.com' || adm.role === 'owner';
+                    const isOwner = adm.role === 'owner';
                     return (
                       <tr key={adm.id || adm.email} className="hover:bg-yellow-50/50 font-medium">
                         <td className="py-2.5 px-3 font-mono font-bold text-black select-all">
