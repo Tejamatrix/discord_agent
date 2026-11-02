@@ -812,7 +812,7 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
                         }
                       }}
                       title="Leave Server"
-                      className="btn-neo btn-neo-white p-1 hover:btn-neo-coral"
+                      className="btn-neo btn-neo-white p-1 hover:btn-neo-coral shrink-0 ml-1"
                     >
                       <Trash2 className="w-3.5 h-3.5 text-black" />
                     </button>
@@ -1284,9 +1284,9 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
 
               {/* Grid: Voice Channels & Text Message Dispatcher */}
               {(mobileTab === 'channels' || window.innerWidth >= 768) && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 min-w-0">
                   {/* 1. Voice Channels Controller */}
-                  <div className="card-neo p-4 sm:p-5 bg-white space-y-4 shadow-neo">
+                  <div className="card-neo p-4 sm:p-5 bg-white space-y-4 shadow-neo min-w-0">
                     <div className="flex justify-between items-center border-b-2 border-black pb-2">
                       <h3 className="text-xs sm:text-sm font-black uppercase text-black flex items-center gap-2">
                         <Headphones className="w-4 h-4 text-black" />
@@ -1295,67 +1295,83 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
                     </div>
 
                     {voiceChannels.length > 0 ? (
-                      <div className="space-y-2">
+                      <div className="space-y-2.5">
                         {voiceChannels.map((vc) => {
                           const isThisConnected = voiceState.channelId === vc.id;
                           const canJoin = vc.canJoin !== false;
                           const otherSlotsInChannel = slots.filter(
                             (s) => s.slot !== activeSlotIndex && s.connected && s.voiceState?.channelId === vc.id
                           );
+                          const activeSlotLabel = `Slot ${String(activeSlotIndex + 1).padStart(2, '0')}`;
 
                           return (
                             <div
                               key={vc.id}
-                              className={`card-neo p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs transition-colors ${
+                              className={`card-neo p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs transition-colors overflow-hidden ${
                                 isThisConnected ? 'bg-[#DCFCE7]' : 'bg-[#FAF8F5]'
                               }`}
                             >
-                              <div className="flex flex-col space-y-1">
-                                <div className="flex items-center space-x-2">
+                              <div className="flex flex-col space-y-1.5 min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-1.5 min-w-0">
                                   {canJoin ? (
-                                    <span className="font-mono text-base">🔊</span>
+                                    <span className="font-mono text-sm shrink-0">🔊</span>
                                   ) : (
-                                    <Lock className="w-3.5 h-3.5 text-gray-500" />
+                                    <Lock className="w-3.5 h-3.5 text-gray-500 shrink-0" />
                                   )}
-                                  <span className={`font-black ${canJoin ? 'text-black' : 'text-gray-500'}`}>
+                                  <span
+                                    title={`#${vc.name}`}
+                                    className={`font-black truncate max-w-[160px] sm:max-w-[210px] ${canJoin ? 'text-black' : 'text-gray-500'}`}
+                                  >
                                     #{vc.name}
                                   </span>
                                   {isThisConnected && (
-                                    <span className="badge-neo bg-[#4ADE80] text-black px-1.5 py-0.2 text-[9px]">
-                                      SLOT 0{activeSlotIndex + 1} CONNECTED
+                                    <span className="badge-neo bg-[#4ADE80] text-black px-1.5 py-0.5 text-[9px] font-black shrink-0">
+                                      {activeSlotLabel} CONNECTED
                                     </span>
                                   )}
                                 </div>
 
                                 {otherSlotsInChannel.length > 0 && (
-                                  <div className="flex items-center gap-1 pl-6">
-                                    {otherSlotsInChannel.map((os) => (
+                                  <div className="flex flex-wrap items-center gap-1 min-w-0">
+                                    {otherSlotsInChannel.slice(0, 3).map((os) => (
                                       <span
                                         key={os.slot}
-                                        className="badge-neo bg-[#FFE600] text-black px-1.5 py-0.2 text-[8px]"
+                                        title={`Slot ${os.slot + 1} (${os.profile?.username || 'User'})`}
+                                        className="badge-neo bg-[#FFE600] text-black px-1.5 py-0.5 text-[9px] font-bold truncate max-w-[140px] shrink-0"
                                       >
-                                        Slot 0{os.slot + 1} ({os.profile?.username}) also here
+                                        Slot {String(os.slot + 1).padStart(2, '0')} ({os.profile?.username || 'User'})
                                       </span>
                                     ))}
+                                    {otherSlotsInChannel.length > 3 && (
+                                      <span
+                                        title={otherSlotsInChannel
+                                          .slice(3)
+                                          .map((os) => `Slot ${os.slot + 1} (${os.profile?.username || 'User'})`)
+                                          .join(', ')}
+                                        className="badge-neo bg-black text-white px-1.5 py-0.5 text-[9px] font-bold shrink-0 cursor-help"
+                                      >
+                                        +{otherSlotsInChannel.length - 3} more
+                                      </span>
+                                    )}
                                   </div>
                                 )}
                               </div>
 
-                              <div>
+                              <div className="shrink-0 flex items-center justify-end">
                                 {isThisConnected ? (
                                   <button
                                     onClick={onLeaveVoice}
-                                    className="btn-neo btn-neo-coral px-3 py-1.5 text-xs font-black uppercase"
+                                    className="btn-neo btn-neo-coral px-3 py-1.5 text-xs font-black uppercase shadow-neo-sm whitespace-nowrap"
                                   >
-                                    Leave VC (Slot 0{activeSlotIndex + 1})
+                                    Leave VC ({activeSlotLabel})
                                   </button>
                                 ) : (
                                   <button
                                     onClick={() => onJoinVoice(activeGuild.id, vc.id)}
                                     disabled={!canJoin}
-                                    className="btn-neo btn-neo-lime px-3 py-1.5 text-xs font-black uppercase disabled:opacity-40"
+                                    className="btn-neo btn-neo-lime px-3 py-1.5 text-xs font-black uppercase disabled:opacity-40 shadow-neo-sm whitespace-nowrap"
                                   >
-                                    {canJoin ? `Join VC (Slot 0${activeSlotIndex + 1})` : 'Locked'}
+                                    {canJoin ? `Join VC (${activeSlotLabel})` : 'Locked'}
                                   </button>
                                 )}
                               </div>
@@ -1369,7 +1385,7 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
                   </div>
 
                   {/* 2. Text Message Sender */}
-                  <div className="card-neo p-4 sm:p-5 bg-white space-y-4 shadow-neo">
+                  <div className="card-neo p-4 sm:p-5 bg-white space-y-4 shadow-neo min-w-0">
                     <h3 className="text-xs sm:text-sm font-black uppercase text-black flex items-center gap-2 border-b-2 border-black pb-2">
                       <Send className="w-4 h-4 text-black" />
                       <span>Send Message as Account</span>
