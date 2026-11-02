@@ -27,7 +27,7 @@ export default function App() {
   const [isAdmin, setIsAdmin] = useState<boolean>(api.isAdmin);
   const [adminEmail, setAdminEmail] = useState<string | null>(api.adminEmail);
   const [activeKey, setActiveKey] = useState<string | null>(api.activeKey);
-  const [maxTokensAllowed, setMaxTokensAllowed] = useState<number>(api.isAdmin ? 10 : 1);
+  const [maxTokensAllowed, setMaxTokensAllowed] = useState<number>(api.isAdmin ? 100 : 1);
   const [soundTier, setSoundTier] = useState<'standard' | 'admin_peaks'>(api.soundTier);
 
   // Modal Dialogs
@@ -183,11 +183,19 @@ export default function App() {
   const handleAdminAuthenticated = async (adminInfo: { email: string; maxTokens: number; soundTier: string }) => {
     setIsAdmin(true);
     setAdminEmail(adminInfo.email);
-    setMaxTokensAllowed(adminInfo.maxTokens || 10);
+    setMaxTokensAllowed(adminInfo.maxTokens || 100);
     setSoundTier('admin_peaks');
     setIsKeyGateOpen(false);
     setIsAdminModalOpen(true);
     await checkCurrentSession();
+  };
+
+  const handleUpdateAdminCapacity = async (capacity: number) => {
+    const res = await api.setSlotCapacity(capacity);
+    if (res.success && res.data) {
+      setMaxTokensAllowed(res.data.maxTokens);
+      await loadSlots();
+    }
   };
 
   const handleLogout = () => {
@@ -449,6 +457,7 @@ export default function App() {
         onStopAudio={handleStopAudio}
         onDisconnect={handleDisconnect}
         onLogoutSession={handleLogout}
+        onUpdateCapacity={handleUpdateAdminCapacity}
       />
 
       {/* Admin Control Dashboard Modal */}

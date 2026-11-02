@@ -30,8 +30,8 @@ class KeyService {
     label?: string;
   }): Promise<KeyInfo> {
     const keyString = this.generateRandomCode();
-    // Support 1, 2, 3, up to N tokens (default 1, max 20)
-    const maxTokens = Math.max(1, Math.min(20, Math.floor(Number(options.maxTokens) || 1)));
+    // Support 1, 2, 3, up to N tokens (default 1, max 100)
+    const maxTokens = Math.max(1, Math.min(100, Math.floor(Number(options.maxTokens) || 1)));
     const soundTier = options.soundTier === 'admin_peaks' ? 'admin_peaks' : 'standard';
 
     const created = await prisma.accessKey.create({

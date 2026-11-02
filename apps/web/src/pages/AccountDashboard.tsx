@@ -31,6 +31,8 @@ import {
   Sliders,
   Menu,
   ChevronRight,
+  ChevronLeft,
+  Settings2,
   User,
   Users,
 } from 'lucide-react';
@@ -126,6 +128,7 @@ interface AccountDashboardProps {
   onStopAudio: (mode?: 'individual' | 'joint') => void;
   onDisconnect: () => void;
   onLogoutSession?: () => void;
+  onUpdateCapacity?: (capacity: number) => Promise<void>;
 }
 
 export const AccountDashboard: React.FC<AccountDashboardProps> = ({
@@ -146,6 +149,7 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
   onConnectSlotToken,
   onDisconnectSlot,
   onOpenAdminModal,
+  onUpdateCapacity,
   onBroadcastPlay,
   onBroadcastStop,
   onSelectGuild,
@@ -183,6 +187,25 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
   const [connectSlotModal, setConnectSlotModal] = useState<number | null>(null);
   const [slotTokenInput, setSlotTokenInput] = useState('');
   const [connectingSlot, setConnectingSlot] = useState(false);
+
+  // Slot Pagination & Admin Custom Capacity
+  const [slotPageRange, setSlotPageRange] = useState<number>(0);
+  const [showCapacityModal, setShowCapacityModal] = useState(false);
+  const [customCapacityInput, setCustomCapacityInput] = useState<number>(maxTokensAllowed || 100);
+  const [savingCapacity, setSavingCapacity] = useState(false);
+
+  useEffect(() => {
+    setCustomCapacityInput(maxTokensAllowed || 100);
+  }, [maxTokensAllowed]);
+
+  useEffect(() => {
+    if (slotPageRange !== -1 && maxTokensAllowed > 20) {
+      const page = Math.floor(activeSlotIndex / 20);
+      if (page !== slotPageRange) {
+        setSlotPageRange(page);
+      }
+    }
+  }, [activeSlotIndex, maxTokensAllowed]);
 
   // Mobile View Navigation Tab: 'servers' | 'studio' | 'channels'
   const [mobileTab, setMobileTab] = useState<'studio' | 'servers' | 'channels'>('studio');
@@ -514,77 +537,131 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
       {/* Multi-Token Slot Rack */}
       <div className="bg-[#FAF8F5] border-b-3 border-black px-3 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2 shadow-neo-sm">
         <div className="flex items-center space-x-2 overflow-x-auto py-0.5 w-full sm:w-auto">
-          <span className="badge-neo bg-black text-white px-2 py-1 text-[10px] font-mono shrink-0">
-            SLOTS:
-          </span>
+          {/* Header Badge & Admin Custom Capacity Button */}
+          <div className="flex items-center space-x-1.5 shrink-0">
+            <span className="badge-neo bg-black text-white px-2 py-1 text-[10px] font-mono shrink-0">
+              SLOTS ({slots.filter((s) => s.connected).length}/{isAdmin ? (maxTokensAllowed || 100) : maxTokensAllowed})
+            </span>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setShowCapacityModal(true)}
+                className="btn-neo btn-neo-yellow text-[10px] px-2 py-1 font-black uppercase flex items-center space-x-1 shadow-neo-sm hover:scale-105 transition-transform"
+                title="Super Admin / Admin Only: Customize Slot Rack Capacity (up to 100)"
+              >
+                <Settings2 className="w-3 h-3" />
+                <span>Custom Slots ({maxTokensAllowed})</span>
+              </button>
+            )}
+          </div>
 
+          {/* Range Pagination Tabs when slot count > 20 */}
+          {((isAdmin ? (maxTokensAllowed || 100) : maxTokensAllowed) > 20) && (
+            <div className="flex items-center space-x-1 overflow-x-auto py-0.5 shrink-0 border-l-2 border-black/20 pl-2">
+              {Array.from({ length: Math.ceil((isAdmin ? (maxTokensAllowed || 100) : maxTokensAllowed) / 20) }, (_, pageIdx) => {
+                const start = pageIdx * 20 + 1;
+                const end = Math.min((pageIdx + 1) * 20, isAdmin ? (maxTokensAllowed || 100) : maxTokensAllowed);
+                const isActive = slotPageRange === pageIdx;
+                return (
+                  <button
+                    key={pageIdx}
+                    type="button"
+                    onClick={() => setSlotPageRange(pageIdx)}
+                    className={`px-1.5 py-0.5 text-[9px] font-black rounded border-2 border-black transition-all ${
+                      isActive ? 'bg-[#FFE600] text-black shadow-neo-sm font-bold' : 'bg-white text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    {start}-{end}
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => setSlotPageRange(-1)}
+                className={`px-1.5 py-0.5 text-[9px] font-black rounded border-2 border-black transition-all ${
+                  slotPageRange === -1 ? 'bg-[#FFE600] text-black shadow-neo-sm font-bold' : 'bg-white text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                All
+              </button>
+            </div>
+          )}
+
+          {/* Slot Rack Elements */}
           <div className="flex items-center space-x-2 shrink-0">
-            {Array.from({ length: Math.max(3, isAdmin ? 3 : maxTokensAllowed) }, (_, i) => i).map((slotIdx) => {
-              const slotInfo = slots[slotIdx] || { slot: slotIdx, connected: false, profile: null, voiceState: { connected: false } };
-              const isSlotUnlocked = isAdmin || slotIdx < maxTokensAllowed;
-              const isActiveSlot = activeSlotIndex === slotIdx;
+            {Array.from({ length: Math.max(3, isAdmin ? (maxTokensAllowed || 100) : maxTokensAllowed) }, (_, i) => i)
+              .filter((slotIdx) => {
+                const total = Math.max(3, isAdmin ? (maxTokensAllowed || 100) : maxTokensAllowed);
+                if (slotPageRange === -1 || total <= 20) return true;
+                return Math.floor(slotIdx / 20) === slotPageRange;
+              })
+              .map((slotIdx) => {
+                const slotInfo = slots[slotIdx] || { slot: slotIdx, connected: false, profile: null, voiceState: { connected: false } };
+                const isSlotUnlocked = isAdmin || slotIdx < maxTokensAllowed;
+                const isActiveSlot = activeSlotIndex === slotIdx;
+                const slotLabel = `Slot ${String(slotIdx + 1).padStart(2, '0')}`;
 
-              if (!isSlotUnlocked) {
+                if (!isSlotUnlocked) {
+                  return (
+                    <div
+                      key={slotIdx}
+                      title="Key permits fewer slots. Ask Admin for Multi-Token access."
+                      className="flex items-center space-x-1.5 bg-gray-200 border-2 border-black text-gray-500 px-2.5 py-1 rounded-lg text-xs font-bold cursor-not-allowed select-none opacity-60"
+                    >
+                      <Lock className="w-3 h-3" />
+                      <span className="font-mono text-[11px]">{slotLabel}</span>
+                    </div>
+                  );
+                }
+
+                if (!slotInfo.connected || !slotInfo.profile) {
+                  return (
+                    <button
+                      key={slotIdx}
+                      onClick={() => {
+                        setConnectSlotModal(slotIdx);
+                        setSlotTokenInput('');
+                      }}
+                      className={`btn-neo px-2.5 py-1 text-xs font-black uppercase ${
+                        isActiveSlot ? 'btn-neo-yellow' : 'btn-neo-white border-dashed'
+                      }`}
+                    >
+                      <Plus className="w-3 h-3 mr-1" />
+                      <span>{slotLabel}</span>
+                    </button>
+                  );
+                }
+
                 return (
                   <div
                     key={slotIdx}
-                    title="Key permits fewer slots. Ask Admin for Multi-Token access."
-                    className="flex items-center space-x-1.5 bg-gray-200 border-2 border-black text-gray-500 px-2.5 py-1 rounded-lg text-xs font-bold cursor-not-allowed select-none opacity-60"
-                  >
-                    <Lock className="w-3 h-3" />
-                    <span className="font-mono text-[11px]">Slot 0{slotIdx + 1}</span>
-                  </div>
-                );
-              }
-
-              if (!slotInfo.connected || !slotInfo.profile) {
-                return (
-                  <button
-                    key={slotIdx}
-                    onClick={() => {
-                      setConnectSlotModal(slotIdx);
-                      setSlotTokenInput('');
-                    }}
-                    className={`btn-neo px-2.5 py-1 text-xs font-black uppercase ${
-                      isActiveSlot ? 'btn-neo-yellow' : 'btn-neo-white border-dashed'
+                    onClick={() => onSelectSlot(slotIdx)}
+                    className={`btn-neo px-2.5 py-1 text-xs font-black flex items-center space-x-1.5 cursor-pointer ${
+                      isActiveSlot ? 'btn-neo-yellow ring-2 ring-black' : 'btn-neo-white'
                     }`}
                   >
-                    <Plus className="w-3 h-3 mr-1" />
-                    <span>Slot 0{slotIdx + 1}</span>
-                  </button>
+                    <img
+                      src={slotInfo.profile.avatar_url}
+                      alt={slotInfo.profile.username}
+                      className="w-4 h-4 rounded border border-black"
+                    />
+                    <span className="truncate max-w-[90px]">{slotInfo.profile.username}</span>
+                    {slotInfo.voiceState?.connected && (
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 border border-black" title="In Voice Channel" />
+                    )}
+                    {slotInfo.voiceState?.isPlayingAudio && (
+                      <span className="badge-neo bg-[#FFE600] text-black px-1.5 py-0.2 text-[8px] animate-pulse">
+                        🎵 Playing
+                      </span>
+                    )}
+                    {isActiveSlot && (
+                      <span className="badge-neo bg-black text-white px-1 py-0.2 text-[8px]">
+                        ACTIVE
+                      </span>
+                    )}
+                  </div>
                 );
-              }
-
-              return (
-                <div
-                  key={slotIdx}
-                  onClick={() => onSelectSlot(slotIdx)}
-                  className={`btn-neo px-2.5 py-1 text-xs font-black flex items-center space-x-1.5 cursor-pointer ${
-                    isActiveSlot ? 'btn-neo-yellow ring-2 ring-black' : 'btn-neo-white'
-                  }`}
-                >
-                  <img
-                    src={slotInfo.profile.avatar_url}
-                    alt={slotInfo.profile.username}
-                    className="w-4 h-4 rounded border border-black"
-                  />
-                  <span className="truncate max-w-[90px]">{slotInfo.profile.username}</span>
-                  {slotInfo.voiceState?.connected && (
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 border border-black" title="In Voice Channel" />
-                  )}
-                  {slotInfo.voiceState?.isPlayingAudio && (
-                    <span className="badge-neo bg-[#FFE600] text-black px-1.5 py-0.2 text-[8px] animate-pulse">
-                      🎵 Playing
-                    </span>
-                  )}
-                  {isActiveSlot && (
-                    <span className="badge-neo bg-black text-white px-1 py-0.2 text-[8px]">
-                      ACTIVE
-                    </span>
-                  )}
-                </div>
-              );
-            })}
+              })}
           </div>
         </div>
 
@@ -1459,6 +1536,108 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
                 className="btn-neo btn-neo-yellow px-4 py-1.5 text-xs font-black uppercase disabled:opacity-50"
               >
                 {connectingSlot ? 'Connecting...' : 'Connect Token'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Custom Slot Capacity Modal */}
+      {isAdmin && showCapacityModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="card-neo w-full max-w-md bg-white border-3 border-black p-5 shadow-neo space-y-4">
+            <div className="flex items-center justify-between border-b-2 border-black/10 pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="p-1.5 bg-[#FFE600] border-2 border-black rounded shadow-neo-sm">
+                  <Settings2 className="w-4 h-4 text-black" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black uppercase tracking-tight">Voice Slot Capacity</h3>
+                  <p className="text-[11px] text-gray-500 font-bold">Admin Only • Configure active slots (1-100)</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCapacityModal(false)}
+                className="btn-neo btn-neo-white px-2 py-1 text-xs font-black"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-xs font-black uppercase text-gray-700 mb-1.5">
+                Quick Presets:
+              </label>
+              <div className="grid grid-cols-4 gap-1.5">
+                {[1, 3, 5, 10, 20, 50, 100].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setCustomCapacityInput(preset)}
+                    className={`px-2 py-1.5 text-xs font-black rounded border-2 border-black transition-all ${
+                      customCapacityInput === preset
+                        ? 'bg-[#FFE600] text-black shadow-neo-sm scale-102'
+                        : 'bg-white text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    {preset} Slots
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-black uppercase text-gray-700 mb-1">
+                Custom Capacity (1 – 100):
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="100"
+                value={customCapacityInput}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10);
+                  if (!isNaN(val)) {
+                    setCustomCapacityInput(Math.max(1, Math.min(100, val)));
+                  }
+                }}
+                className="input-neo w-full text-base font-mono font-black p-2.5"
+              />
+              <p className="text-[10px] text-gray-500 mt-1 font-bold">
+                ⚠️ Regular clients unlocked via key are strictly limited to their key's count. Only Admin can expand up to 100 slots.
+              </p>
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-3 border-t-2 border-black/10">
+              <button
+                type="button"
+                onClick={() => setShowCapacityModal(false)}
+                className="btn-neo btn-neo-white px-3.5 py-1.5 text-xs font-black uppercase"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={savingCapacity}
+                onClick={async () => {
+                  setSavingCapacity(true);
+                  try {
+                    if (onUpdateCapacity) {
+                      await onUpdateCapacity(customCapacityInput);
+                    }
+                    setShowCapacityModal(false);
+                    setBanner({ text: `Voice slot capacity set to ${customCapacityInput}!`, type: 'success' });
+                    setTimeout(() => setBanner(null), 3000);
+                  } catch (err: any) {
+                    setBanner({ text: err.message || 'Failed to update capacity', type: 'error' });
+                  } finally {
+                    setSavingCapacity(false);
+                  }
+                }}
+                className="btn-neo btn-neo-yellow px-4 py-1.5 text-xs font-black uppercase disabled:opacity-50"
+              >
+                {savingCapacity ? 'Applying...' : 'Apply Capacity'}
               </button>
             </div>
           </div>

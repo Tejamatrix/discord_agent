@@ -195,6 +195,13 @@ class ApiClient {
     return this.request('/account/slots');
   }
 
+  public setSlotCapacity(capacity: number) {
+    return this.request('/account/slots/capacity', {
+      method: 'POST',
+      body: JSON.stringify({ capacity }),
+    });
+  }
+
   public connectSlot(slotIndex: number, tokenOrJson: string, key?: string, isAdmin?: boolean) {
     return this.request(`/account/slots/${slotIndex}/connect`, {
       method: 'POST',

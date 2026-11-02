@@ -45,9 +45,9 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   const [addingAdmin, setAddingAdmin] = useState(false);
   const [adminBanner, setAdminBanner] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  // Key generator form state: support 1, 2, 3, up to N tokens
-  const [tokenSelectionType, setTokenSelectionType] = useState<'1' | '2' | '3' | 'custom'>('1');
-  const [customTokenCount, setCustomTokenCount] = useState<number>(4);
+  // Key generator form state: support 1, 3, 5, 10, 25, 50, 100 up to custom 100 slots
+  const [tokenSelectionType, setTokenSelectionType] = useState<'1' | '3' | '5' | '10' | '25' | '50' | '100' | 'custom'>('1');
+  const [customTokenCount, setCustomTokenCount] = useState<number>(10);
   const [genSoundTier, setGenSoundTier] = useState<'standard' | 'admin_peaks'>('standard');
   const [genLabel, setGenLabel] = useState('');
   const [generatedKey, setGeneratedKey] = useState<any | null>(null);
@@ -55,9 +55,13 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
 
   const getEffectiveTokenCount = (): number => {
     if (tokenSelectionType === '1') return 1;
-    if (tokenSelectionType === '2') return 2;
     if (tokenSelectionType === '3') return 3;
-    return Math.max(1, Math.min(20, Number(customTokenCount) || 1));
+    if (tokenSelectionType === '5') return 5;
+    if (tokenSelectionType === '10') return 10;
+    if (tokenSelectionType === '25') return 25;
+    if (tokenSelectionType === '50') return 50;
+    if (tokenSelectionType === '100') return 100;
+    return Math.max(1, Math.min(100, Math.floor(Number(customTokenCount) || 1)));
   };
 
   const loadData = async () => {
@@ -273,30 +277,30 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                   <label className="text-xs font-black uppercase tracking-wider block text-black">
                     Token Slots Limit
                   </label>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {(['1', '2', '3', 'custom'] as const).map((t) => (
+                  <div className="grid grid-cols-4 gap-1">
+                    {(['1', '3', '5', '10', '25', '50', '100', 'custom'] as const).map((t) => (
                       <button
                         key={t}
                         type="button"
                         onClick={() => setTokenSelectionType(t)}
-                        className={`btn-neo py-1.5 text-xs font-black uppercase ${
+                        className={`btn-neo py-1 text-[11px] font-black uppercase ${
                           tokenSelectionType === t
                             ? 'btn-neo-yellow'
                             : 'btn-neo-white text-gray-600'
                         }`}
                       >
-                        {t === 'custom' ? 'N' : `${t}`}
+                        {t === 'custom' ? 'Custom' : `${t}`}
                       </button>
                     ))}
                   </div>
 
                   {tokenSelectionType === 'custom' && (
                     <div className="pt-1.5 flex items-center space-x-2">
-                      <span className="text-xs font-bold">N Slots:</span>
+                      <span className="text-xs font-bold">Custom (1-100):</span>
                       <input
                         type="number"
                         min="1"
-                        max="20"
+                        max="100"
                         value={customTokenCount}
                         onChange={(e) => setCustomTokenCount(Number(e.target.value))}
                         className="input-neo w-24 px-2 py-1 text-xs font-mono font-black"

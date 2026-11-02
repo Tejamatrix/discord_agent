@@ -83,7 +83,7 @@ router.post('/login', async (req, res) => {
         isOwner: isRootOwner,
         email: cleanEmail,
         role: isRootOwner ? 'owner' : 'admin',
-        maxTokens: 10,
+        maxTokens: 100,
         soundTier: 'admin_peaks',
         message: isRootOwner
           ? 'Welcome to Superadmin Console!'
@@ -216,7 +216,7 @@ router.post('/keys/generate', requireAdmin, async (req, res) => {
   try {
     const { maxTokens, soundTier, label } = req.body;
 
-    const tokens = Math.max(1, Math.min(20, Math.floor(Number(maxTokens) || 1)));
+    const tokens = Math.max(1, Math.min(100, Math.floor(Number(maxTokens) || 1)));
     const tier = soundTier === 'admin_peaks' ? 'admin_peaks' : 'standard';
 
     const newKey = await keyService.generateKey({

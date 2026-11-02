@@ -60,12 +60,18 @@ export const resolveTenantSession = async (req: any): Promise<ResolvedTenant> =>
     email = adminHeader.replace(/^Bearer\s+/i, '').trim().toLowerCase();
   }
   if (email && (await adminService.isAdmin(email))) {
-    const session = tenantAccountManager.getSession('admin_' + email, 10, 'admin_peaks');
+    const customCapacity = req.headers['x-admin-capacity']
+      ? parseInt(String(req.headers['x-admin-capacity']), 10)
+      : undefined;
+    const finalSlots = customCapacity && !isNaN(customCapacity)
+      ? Math.max(1, Math.min(100, customCapacity))
+      : 100;
+    const session = tenantAccountManager.getSession('admin_' + email, finalSlots, 'admin_peaks');
     return {
       tenantId: 'admin_' + email,
       isAdmin: true,
       soundTier: 'admin_peaks',
-      maxTokens: 10,
+      maxTokens: finalSlots,
       session,
     };
   }
@@ -104,7 +110,7 @@ const getTargetSlotIndex = (req: any): number | undefined => {
   const param = req.query?.slot ?? req.body?.slotIndex ?? req.headers['x-slot-index'];
   if (param !== undefined && param !== null && param !== '') {
     const idx = parseInt(String(param), 10);
-    if (!isNaN(idx) && idx >= 0 && idx < 20) return idx;
+    if (!isNaN(idx) && idx >= 0 && idx < 100) return idx;
   }
   return undefined;
 };
@@ -177,6 +183,42 @@ router.get('/slots', async (req, res) => {
       slots: tenant.session.getAllSlotsInfo(tenant.maxTokens),
     },
   });
+});
+
+// Set Custom Slot Capacity (Reserved for Super Admin and Admin Only)
+router.post('/slots/capacity', async (req, res) => {
+  try {
+    const tenant = await resolveTenantSession(req);
+    if (!tenant.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        error: 'Custom slot count is strictly restricted to Super Admin and Admin only. Regular clients must obtain an upgraded key.',
+      });
+    }
+
+    const { capacity } = req.body;
+    const count = parseInt(String(capacity), 10);
+    if (isNaN(count) || count < 1 || count > 100) {
+      return res.status(400).json({
+        success: false,
+        error: 'Slot capacity must be an integer between 1 and 100 slots.',
+      });
+    }
+
+    tenant.session.setMaxTokens(count);
+    tenant.maxTokens = count;
+
+    res.json({
+      success: true,
+      data: {
+        maxTokens: count,
+        slots: tenant.session.getAllSlotsInfo(count),
+      },
+      message: `Admin slot capacity updated to ${count} slot(s).`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // Connect Token to Specific Slot (0, 1, or 2)

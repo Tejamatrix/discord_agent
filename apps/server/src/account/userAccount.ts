@@ -168,21 +168,27 @@ export class AccountSlot {
   public async connectWithToken(token: string): Promise<UserAccountProfile> {
     console.log(`[Tenant ${this.tenantId}][Slot ${this.slotIndex + 1}] Authenticating token via Discord Gateway...`);
 
-    if (!token || token.trim().length < 30) {
+    const sanitizedToken = token
+      .trim()
+      .replace(/^["']|["']$/g, '')
+      .replace(/^(Bot|Bearer)\s*/i, '')
+      .trim();
+
+    if (!sanitizedToken || sanitizedToken.length < 30) {
       throw new Error('Invalid token: Discord tokens are typically 60-90 characters long. Make sure you pasted the full token.');
     }
 
     // 1. Tear down existing connection if any
     await this.disconnect();
-    this.currentToken = token;
+    this.currentToken = sanitizedToken;
 
     // 2. Initialize discord.js-selfbot-v13 Client with instant ready handling
     const client = new Client({
       checkUpdate: false,
       autoRedeemNitro: false,
       waitGuildTimeout: 0, // Do not wait for 100+ guilds to finish streaming before emitting ready
-      retryLimit: 0,
-      restRequestTimeout: 5000,
+      retryLimit: 1,
+      restRequestTimeout: 15000,
     } as any);
 
     // Direct WebSocket Gateway connection (bypasses REST /gateway endpoint that Cloudflare rate limits on datacenters)
@@ -252,7 +258,7 @@ export class AccountSlot {
             reject(new Error('Connection timed out. Discord did not respond in time. Please verify your token.'));
           }
         }
-      }, 20000);
+      }, 30000);
 
       client.once('ready', finishAuth);
 
@@ -788,8 +794,8 @@ export class UserAccountSession {
 
   public async connectSlot(slotIndex: number, rawInput: string, maxTokensAllowed?: number): Promise<UserAccountProfile> {
     const allowed = maxTokensAllowed ?? this.maxTokens;
-    if (slotIndex < 0 || slotIndex >= 20) {
-      throw new Error('Slot index out of range (max 20)');
+    if (slotIndex < 0 || slotIndex >= 100) {
+      throw new Error('Slot index out of range (max 100)');
     }
 
     if (slotIndex >= allowed) {
