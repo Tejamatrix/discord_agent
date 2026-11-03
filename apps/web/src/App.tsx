@@ -115,6 +115,19 @@ export default function App() {
       setGuilds([]);
       setActiveGuild(null);
       setChannels([]);
+
+      // Auto-reconnect saved tokens across server restarts
+      const tPrefix = api.isAdmin ? `admin_${api.adminEmail || 'master'}` : `key_${api.activeKey}`;
+      const savedToken = localStorage.getItem(`hub_saved_token_${tPrefix}_${activeSlotIndex}`);
+      if (savedToken) {
+        api.connectSlot(activeSlotIndex, savedToken, api.activeKey || undefined, api.isAdmin).then(async (cRes) => {
+          if (cRes.success && cRes.data) {
+            setProfile(cRes.data);
+            await loadGuilds(activeSlotIndex);
+            await loadSlots();
+          }
+        }).catch(() => {});
+      }
     }
 
     setLoading(false);
@@ -232,6 +245,10 @@ export default function App() {
   const handleConnectSlotToken = async (slotIndex: number, token: string): Promise<{ success: boolean; error?: string }> => {
     const res = await api.connectSlot(slotIndex, token, activeKey || undefined, isAdmin);
     if (res.success && res.data) {
+      const tenantPrefix = activeKey ? `key_${activeKey}` : (adminEmail ? `admin_${adminEmail}` : 'default');
+      try {
+        localStorage.setItem(`hub_saved_token_${tenantPrefix}_${slotIndex}`, token);
+      } catch {}
       await loadSlots();
       await handleSelectSlot(slotIndex);
       return { success: true };
@@ -242,6 +259,10 @@ export default function App() {
   const handleDisconnectSlot = async (slotIndex: number): Promise<boolean> => {
     const res = await api.disconnectSlot(slotIndex);
     if (res.success) {
+      const tenantPrefix = activeKey ? `key_${activeKey}` : (adminEmail ? `admin_${adminEmail}` : 'default');
+      try {
+        localStorage.removeItem(`hub_saved_token_${tenantPrefix}_${slotIndex}`);
+      } catch {}
       await loadSlots();
       if (slotIndex === activeSlotIndex) {
         setProfile(null);

@@ -1,5 +1,6 @@
 import { prisma } from '../db/prisma';
 import crypto from 'crypto';
+import { persistentKeyStore } from './persistentKeyStore';
 
 export interface KeyInfo {
   id: string;
@@ -34,31 +35,75 @@ class KeyService {
     const maxTokens = Math.max(1, Math.min(100, Math.floor(Number(options.maxTokens) || 1)));
     const soundTier = options.soundTier === 'admin_peaks' ? 'admin_peaks' : 'standard';
 
-    const created = await prisma.accessKey.create({
-      data: {
+    let created: KeyInfo;
+    try {
+      created = await prisma.accessKey.create({
+        data: {
+          key: keyString,
+          max_tokens: maxTokens,
+          sound_tier: soundTier,
+          label: options.label || null,
+          is_active: true,
+        },
+      });
+    } catch {
+      // Fallback if DB write fails
+      created = {
+        id: `key-${Date.now()}-${keyString}`,
         key: keyString,
         max_tokens: maxTokens,
         sound_tier: soundTier,
         label: options.label || null,
         is_active: true,
-      },
-    });
+        created_at: new Date(),
+      };
+    }
+
+    // Persist to json storage to ensure it never gets lost across server restarts or container rebuilds
+    persistentKeyStore.set(created);
 
     return created;
   }
 
   public async listKeys(): Promise<KeyInfo[]> {
-    return prisma.accessKey.findMany({
-      orderBy: { created_at: 'desc' },
-    });
+    const fileKeys = persistentKeyStore.list();
+    if (fileKeys.length > 0) {
+      return fileKeys;
+    }
+
+    try {
+      const dbKeys = await prisma.accessKey.findMany({
+        orderBy: { created_at: 'desc' },
+      });
+      for (const k of dbKeys) {
+        persistentKeyStore.set(k);
+      }
+      return dbKeys;
+    } catch {
+      return fileKeys;
+    }
   }
 
   public async getKeyByString(keyString: string): Promise<KeyInfo | null> {
     if (!keyString) return null;
     const normalized = keyString.trim().toUpperCase();
-    return prisma.accessKey.findUnique({
-      where: { key: normalized },
-    });
+
+    // 1. Fast persistent store lookup
+    const cached = persistentKeyStore.get(normalized);
+    if (cached) return cached;
+
+    // 2. Database lookup
+    try {
+      const dbKey = await prisma.accessKey.findUnique({
+        where: { key: normalized },
+      });
+      if (dbKey) {
+        persistentKeyStore.set(dbKey);
+        return dbKey;
+      }
+    } catch {}
+
+    return null;
   }
 
   public async validateKey(keyString: string): Promise<{ valid: boolean; keyInfo?: KeyInfo; error?: string }> {
@@ -69,8 +114,9 @@ class KeyService {
     if (!key) {
       return { valid: false, error: 'Invalid Access Key. Please check the key provided by Admin.' };
     }
+    // Permanent active keys: never expire automatically unless explicitly deactivated by Super Admin
     if (!key.is_active) {
-      return { valid: false, error: 'This Access Key has been deactivated or revoked by Admin.' };
+      return { valid: false, error: 'This Access Key has been deactivated or revoked by Super Admin.' };
     }
     return { valid: true, keyInfo: key };
   }
@@ -81,69 +127,79 @@ class KeyService {
       return { success: false, error: check.error };
     }
 
-    const updated = await prisma.accessKey.update({
-      where: { id: check.keyInfo.id },
-      data: {
-        redeemed_by: userIdentifier,
-        redeemed_at: new Date(),
-      },
-    });
+    const updated: KeyInfo = {
+      ...check.keyInfo,
+      redeemed_by: userIdentifier,
+      redeemed_at: new Date(),
+    };
+
+    try {
+      await prisma.accessKey.update({
+        where: { id: check.keyInfo.id },
+        data: {
+          redeemed_by: userIdentifier,
+          redeemed_at: updated.redeemed_at,
+        },
+      });
+    } catch {}
+
+    persistentKeyStore.set(updated);
 
     return { success: true, keyInfo: updated };
   }
 
   public async revokeKey(id: string): Promise<boolean> {
     try {
+      const existing = persistentKeyStore.getById(id);
+      if (existing) {
+        existing.is_active = false;
+        persistentKeyStore.set(existing);
+      }
       await prisma.accessKey.update({
         where: { id },
         data: { is_active: false },
       });
       return true;
     } catch {
-      return false;
+      return persistentKeyStore.getById(id)?.is_active === false;
     }
   }
 
   public async activateKey(id: string): Promise<boolean> {
     try {
+      const existing = persistentKeyStore.getById(id);
+      if (existing) {
+        existing.is_active = true;
+        persistentKeyStore.set(existing);
+      }
       await prisma.accessKey.update({
         where: { id },
         data: { is_active: true },
       });
       return true;
     } catch {
-      return false;
+      return persistentKeyStore.getById(id)?.is_active === true;
     }
   }
 
   public async deleteKey(id: string): Promise<boolean> {
     try {
+      persistentKeyStore.delete(id);
       await prisma.accessKey.delete({
         where: { id },
       });
       return true;
     } catch {
-      return false;
+      return persistentKeyStore.delete(id);
     }
   }
 
   /**
-   * Seed an initial Master Multi-Token Key if database has zero keys
+   * Seed and sync initial Master Multi-Token Keys and persistent JSON store
    */
   public async ensureSeedKey(): Promise<void> {
-    const count = await prisma.accessKey.count();
-    if (count === 0) {
-      await prisma.accessKey.create({
-        data: {
-          key: 'KEY-MASTER-VIP3-ADMIN',
-          max_tokens: 3,
-          sound_tier: 'admin_peaks',
-          label: 'Master Admin 3-Token Key',
-          is_active: true,
-        },
-      });
-      console.log('🔑 Master initial Access Key created: KEY-MASTER-VIP3-ADMIN (3 Tokens, High Peaks Overdrive)');
-    }
+    await persistentKeyStore.syncWithPrisma();
+    console.log('🔑 Permanent Key Store synchronized successfully. All access keys preserved across reboots.');
   }
 }
 

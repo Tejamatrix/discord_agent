@@ -1,5 +1,10 @@
+import fs from 'fs';
+import path from 'path';
 import { prisma } from '../db/prisma';
 import { config } from '../config/env';
+
+const DATA_DIR = path.resolve(__dirname, '../../data');
+const ADMINS_FILE = path.join(DATA_DIR, 'admins_store.json');
 
 export interface AdminRecord {
   id: string;
@@ -20,14 +25,66 @@ class AdminService {
   ]);
 
   constructor() {
+    this.ensureDataDir();
     this.init().catch((err) => {
       console.warn('AdminService init notice:', err.message);
     });
   }
 
-  public async init() {
+  private ensureDataDir() {
     try {
-      // Ensure owner is in database
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+    } catch {}
+  }
+
+  private saveAdminsFile() {
+    this.ensureDataDir();
+    try {
+      const records: Array<{ email: string; password?: string | null; role: string; added_by?: string | null }> = [];
+      for (const email of this.memoryAdmins) {
+        records.push({
+          email,
+          password: this.memoryAdminPasswords.get(email) || null,
+          role: email === OWNER_EMAIL.toLowerCase() ? 'owner' : 'admin',
+          added_by: email === OWNER_EMAIL.toLowerCase() ? 'system' : 'superadmin',
+        });
+      }
+      fs.writeFileSync(ADMINS_FILE, JSON.stringify(records, null, 2), 'utf-8');
+    } catch (e: any) {
+      console.warn('AdminService: Failed to save admins_store.json:', e.message);
+    }
+  }
+
+  public async init() {
+    this.ensureDataDir();
+    this.memoryAdmins.add(OWNER_EMAIL.toLowerCase());
+    this.memoryAdminPasswords.set(OWNER_EMAIL.toLowerCase(), OWNER_PASSWORD.trim());
+
+    // 1. Load from persistent JSON store
+    try {
+      if (fs.existsSync(ADMINS_FILE)) {
+        const raw = fs.readFileSync(ADMINS_FILE, 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          for (const item of parsed) {
+            if (item && item.email) {
+              const clean = item.email.toLowerCase().trim();
+              this.memoryAdmins.add(clean);
+              if (item.password) {
+                this.memoryAdminPasswords.set(clean, item.password.trim());
+              }
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn('AdminService: File load fallback:', e.message);
+    }
+
+    // 2. Ensure owner and cached admins in SQLite
+    try {
       const existingOwner = await prisma.adminEmail.findUnique({
         where: { email: OWNER_EMAIL.toLowerCase() },
       });
@@ -48,13 +105,23 @@ class AdminService {
         });
       }
 
-      // Load all admins and passwords into memory cache
-      const all = await prisma.adminEmail.findMany();
-      this.memoryAdmins.clear();
-      this.memoryAdminPasswords.clear();
-      this.memoryAdmins.add(OWNER_EMAIL.toLowerCase());
-      this.memoryAdminPasswords.set(OWNER_EMAIL.toLowerCase(), OWNER_PASSWORD.trim());
+      // Upsert memory admins to SQLite
+      for (const email of this.memoryAdmins) {
+        const pass = this.memoryAdminPasswords.get(email) || (email === OWNER_EMAIL.toLowerCase() ? OWNER_PASSWORD : 'admin');
+        await prisma.adminEmail.upsert({
+          where: { email },
+          update: { password: pass },
+          create: {
+            email,
+            password: pass,
+            role: email === OWNER_EMAIL.toLowerCase() ? 'owner' : 'admin',
+            added_by: 'system',
+          },
+        });
+      }
 
+      // Load all from SQLite into memory
+      const all = await prisma.adminEmail.findMany();
       for (const a of all) {
         const clean = a.email.toLowerCase();
         this.memoryAdmins.add(clean);
@@ -62,10 +129,10 @@ class AdminService {
           this.memoryAdminPasswords.set(clean, a.password.trim());
         }
       }
+
+      this.saveAdminsFile();
     } catch (e: any) {
       console.warn('AdminService init fallback:', e.message);
-      this.memoryAdmins.add(OWNER_EMAIL.toLowerCase());
-      this.memoryAdminPasswords.set(OWNER_EMAIL.toLowerCase(), OWNER_PASSWORD.trim());
     }
   }
 
@@ -150,7 +217,7 @@ class AdminService {
             id: r.id,
             email: r.email,
             password: '••••••••',
-            role: (r.role as 'owner' | 'admin') || 'admin',
+            role: (r.role as any) || 'admin',
             added_by: r.added_by,
             created_at: r.created_at,
           })),
@@ -218,6 +285,7 @@ class AdminService {
 
       this.memoryAdmins.add(clean);
       this.memoryAdminPasswords.set(clean, cleanPass);
+      this.saveAdminsFile();
 
       return {
         success: true,
@@ -247,6 +315,7 @@ class AdminService {
       });
       this.memoryAdmins.delete(clean);
       this.memoryAdminPasswords.delete(clean);
+      this.saveAdminsFile();
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message || 'Failed to remove admin.' };

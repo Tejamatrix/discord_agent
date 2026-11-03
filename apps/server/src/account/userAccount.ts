@@ -10,6 +10,7 @@ import {
 } from '@discordjs/voice';
 import fs from 'fs';
 import { socketService } from '../socket';
+import { persistentTokenStore } from '../services/persistentTokenStore';
 
 export interface UserAccountProfile {
   id: string;
@@ -811,12 +812,34 @@ export class UserAccountSession {
     const slot = this.slots[slotIndex];
     const profile = await slot.connectWithToken(token);
     this.activeSlotIndex = slotIndex;
+
+    // Permanently persist token so it survives server restarts and crashes
+    persistentTokenStore.saveToken(this.tenantId, slotIndex, token);
+
     return profile;
   }
 
   public async disconnectSlot(slotIndex: number): Promise<void> {
     if (slotIndex >= 0 && slotIndex < this.slots.length) {
       await this.slots[slotIndex].disconnect();
+    }
+    // Remove from permanent store
+    persistentTokenStore.removeToken(this.tenantId, slotIndex);
+  }
+
+  public async restoreSavedTokens(): Promise<void> {
+    const saved = persistentTokenStore.getTokensForTenant(this.tenantId);
+    if (!saved || saved.size === 0) return;
+
+    for (const [slotIndex, entry] of saved.entries()) {
+      if (slotIndex >= this.maxTokens) continue;
+      const slot = this.getSlot(slotIndex);
+      if (!slot.isConnected && entry.token) {
+        console.log(`🔄 [Tenant ${this.tenantId}][Slot ${slotIndex + 1}] Restoring saved token across restart...`);
+        slot.connectWithToken(entry.token).catch((err) => {
+          console.warn(`[Tenant ${this.tenantId}][Slot ${slotIndex + 1}] Saved token restore note:`, err.message);
+        });
+      }
     }
   }
 
@@ -956,8 +979,12 @@ export class TenantAccountManager {
     soundTier: 'standard' | 'admin_peaks' = 'standard'
   ): UserAccountSession {
     const cleanId = tenantId?.trim() || 'default';
-    if (!this.sessions.has(cleanId)) {
-      this.sessions.set(cleanId, new UserAccountSession(cleanId, maxTokens, soundTier));
+    const isNew = !this.sessions.has(cleanId);
+    if (isNew) {
+      const session = new UserAccountSession(cleanId, maxTokens, soundTier);
+      this.sessions.set(cleanId, session);
+      // Automatically restore saved slot tokens in background across server restarts
+      setTimeout(() => session.restoreSavedTokens().catch(() => {}), 150);
     }
     const session = this.sessions.get(cleanId)!;
     if (maxTokens > session.maxTokens) {

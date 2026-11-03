@@ -38,6 +38,19 @@ const requireAdmin = async (req: any, res: any, next: any) => {
   });
 };
 
+// Middleware strictly requiring Super Admin (Owner) - ensures regular admins cannot delete or revoke keys
+const requireSuperAdmin = async (req: any, res: any, next: any) => {
+  return requireAdmin(req, res, () => {
+    if (!req.isOwner) {
+      return res.status(403).json({
+        success: false,
+        error: 'Permission Denied: Only the Super Admin is authorized to revoke or delete access keys and manage administrators.',
+      });
+    }
+    return next();
+  });
+};
+
 // Admin Login / Verification by Email & Password
 router.post('/login', async (req, res) => {
   try {
@@ -144,8 +157,8 @@ router.get('/admins', requireAdmin, async (req: any, res) => {
   }
 });
 
-// Add New Admin Email with Custom Password
-router.post('/admins/add', requireAdmin, async (req: any, res) => {
+// Add New Admin Email with Custom Password (SUPER ADMIN ONLY)
+router.post('/admins/add', requireSuperAdmin, async (req: any, res) => {
   try {
     const { email, password } = req.body;
     if (!email || typeof email !== 'string') {
@@ -178,8 +191,8 @@ router.post('/admins/add', requireAdmin, async (req: any, res) => {
   }
 });
 
-// Remove Admin Email
-router.delete('/admins/:email', requireAdmin, async (req, res) => {
+// Remove Admin Email (SUPER ADMIN ONLY)
+router.delete('/admins/:email', requireSuperAdmin, async (req, res) => {
   try {
     const targetEmail = decodeURIComponent(req.params.email);
     const result = await adminService.removeAdmin(targetEmail);
@@ -201,7 +214,7 @@ router.delete('/admins/:email', requireAdmin, async (req, res) => {
 
 // --- ACCESS KEYS MANAGEMENT ---
 
-// Get All Access Keys
+// Get All Access Keys (All Admins)
 router.get('/keys', requireAdmin, async (req, res) => {
   try {
     const keys = await keyService.listKeys();
@@ -211,7 +224,7 @@ router.get('/keys', requireAdmin, async (req, res) => {
   }
 });
 
-// Generate New Access Key
+// Generate New Access Key (All Admins)
 router.post('/keys/generate', requireAdmin, async (req, res) => {
   try {
     const { maxTokens, soundTier, label } = req.body;
@@ -235,8 +248,8 @@ router.post('/keys/generate', requireAdmin, async (req, res) => {
   }
 });
 
-// Revoke Access Key
-router.post('/keys/:id/revoke', requireAdmin, async (req, res) => {
+// Revoke Access Key (SUPER ADMIN ONLY)
+router.post('/keys/:id/revoke', requireSuperAdmin, async (req, res) => {
   try {
     const ok = await keyService.revokeKey(req.params.id);
     res.json({ success: ok, message: ok ? 'Access Key deactivated' : 'Key not found' });
@@ -245,8 +258,8 @@ router.post('/keys/:id/revoke', requireAdmin, async (req, res) => {
   }
 });
 
-// Activate Access Key
-router.post('/keys/:id/activate', requireAdmin, async (req, res) => {
+// Activate Access Key (SUPER ADMIN ONLY)
+router.post('/keys/:id/activate', requireSuperAdmin, async (req, res) => {
   try {
     const ok = await keyService.activateKey(req.params.id);
     res.json({ success: ok, message: ok ? 'Access Key activated' : 'Key not found' });
@@ -255,8 +268,8 @@ router.post('/keys/:id/activate', requireAdmin, async (req, res) => {
   }
 });
 
-// Delete Access Key
-router.delete('/keys/:id', requireAdmin, async (req, res) => {
+// Delete Access Key (SUPER ADMIN ONLY)
+router.delete('/keys/:id', requireSuperAdmin, async (req, res) => {
   try {
     const ok = await keyService.deleteKey(req.params.id);
     res.json({ success: ok, message: ok ? 'Access Key deleted' : 'Key not found' });

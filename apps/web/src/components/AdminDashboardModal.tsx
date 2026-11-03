@@ -414,44 +414,51 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
             )}
 
             {/* Add New Admin Email & Password Form */}
-            <form onSubmit={handleAddAdminEmail} className="grid grid-cols-1 sm:grid-cols-12 gap-2">
-              <div className="sm:col-span-5">
-                <input
-                  type="email"
-                  placeholder="Admin email (e.g. partner@gmail.com)..."
-                  value={newAdminEmail}
-                  onChange={(e) => setNewAdminEmail(e.target.value)}
-                  className="input-neo w-full px-3 py-2 text-xs font-bold"
-                />
+            {status?.isOwner ? (
+              <form onSubmit={handleAddAdminEmail} className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                <div className="sm:col-span-5">
+                  <input
+                    type="email"
+                    placeholder="Admin email (e.g. partner@gmail.com)..."
+                    value={newAdminEmail}
+                    onChange={(e) => setNewAdminEmail(e.target.value)}
+                    className="input-neo w-full px-3 py-2 text-xs font-bold"
+                  />
+                </div>
+                <div className="sm:col-span-4 relative">
+                  <input
+                    type={showAdminPassword ? 'text' : 'password'}
+                    placeholder="Set admin password..."
+                    value={newAdminPassword}
+                    onChange={(e) => setNewAdminPassword(e.target.value)}
+                    className="input-neo w-full px-3 py-2 text-xs font-bold pr-8"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminPassword(!showAdminPassword)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-black p-0.5"
+                    title={showAdminPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showAdminPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+                <div className="sm:col-span-3">
+                  <button
+                    type="submit"
+                    disabled={addingAdmin || !newAdminEmail.trim() || !newAdminPassword.trim()}
+                    className="btn-neo btn-neo-yellow w-full py-2 text-xs font-black uppercase flex items-center justify-center gap-1.5 shadow-neo-sm disabled:opacity-50"
+                  >
+                    <UserPlus className="w-3.5 h-3.5" />
+                    <span>{addingAdmin ? 'Adding...' : 'Authorize Admin'}</span>
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="p-3 bg-gray-100 border-2 border-black rounded-lg text-xs font-bold text-gray-600 flex items-center gap-2">
+                <Lock className="w-4 h-4 text-black shrink-0" />
+                <span>Admin delegation & modification is restricted to Super Admin only.</span>
               </div>
-              <div className="sm:col-span-4 relative">
-                <input
-                  type={showAdminPassword ? 'text' : 'password'}
-                  placeholder="Set admin password..."
-                  value={newAdminPassword}
-                  onChange={(e) => setNewAdminPassword(e.target.value)}
-                  className="input-neo w-full px-3 py-2 text-xs font-bold pr-8"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowAdminPassword(!showAdminPassword)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-black p-0.5"
-                  title={showAdminPassword ? 'Hide password' : 'Show password'}
-                >
-                  {showAdminPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-              <div className="sm:col-span-3">
-                <button
-                  type="submit"
-                  disabled={addingAdmin || !newAdminEmail.trim() || !newAdminPassword.trim()}
-                  className="btn-neo btn-neo-yellow w-full py-2 text-xs font-black uppercase flex items-center justify-center gap-1.5 shadow-neo-sm disabled:opacity-50"
-                >
-                  <UserPlus className="w-3.5 h-3.5" />
-                  <span>{addingAdmin ? 'Adding...' : 'Authorize Admin'}</span>
-                </button>
-              </div>
-            </form>
+            )}
 
             {/* Admins List Table */}
             <div className="border-2 border-black rounded-lg overflow-hidden bg-[#FAF8F5]">
@@ -511,7 +518,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                         <td className="py-2.5 px-3 text-right">
                           {isOwner ? (
                             <span className="text-[10px] font-bold text-gray-400 italic">Primary Owner</span>
-                          ) : (
+                          ) : status?.isOwner ? (
                             <button
                               onClick={() => handleRemoveAdminEmail(adm.email)}
                               title="Revoke Admin Access"
@@ -519,6 +526,8 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                             >
                               <Trash2 className="w-3 h-3 text-black" />
                             </button>
+                          ) : (
+                            <span className="text-[10px] text-gray-400 font-bold italic">Super Admin Only</span>
                           )}
                         </td>
                       </tr>
@@ -596,21 +605,29 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                             )}
                           </button>
 
-                          <button
-                            onClick={() => handleToggleKey(k.id, k.is_active)}
-                            title={k.is_active ? 'Revoke Key' : 'Activate Key'}
-                            className={`btn-neo p-1.5 ${k.is_active ? 'btn-neo-yellow' : 'btn-neo-lime'}`}
-                          >
-                            <Power className="w-3.5 h-3.5" />
-                          </button>
+                          {status?.isOwner ? (
+                            <>
+                              <button
+                                onClick={() => handleToggleKey(k.id, k.is_active)}
+                                title={k.is_active ? 'Revoke Key' : 'Activate Key'}
+                                className={`btn-neo p-1.5 ${k.is_active ? 'btn-neo-yellow' : 'btn-neo-lime'}`}
+                              >
+                                <Power className="w-3.5 h-3.5" />
+                              </button>
 
-                          <button
-                            onClick={() => handleDeleteKey(k.id)}
-                            title="Delete Key"
-                            className="btn-neo btn-neo-coral p-1.5"
-                          >
-                            <Trash2 className="w-3.5 h-3.5 text-black" />
-                          </button>
+                              <button
+                                onClick={() => handleDeleteKey(k.id)}
+                                title="Delete Key"
+                                className="btn-neo btn-neo-coral p-1.5"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 text-black" />
+                              </button>
+                            </>
+                          ) : (
+                            <span className="badge-neo bg-emerald-100 text-emerald-800 border border-emerald-400 px-1.5 py-0.5 text-[9px] font-bold" title="Keys are permanent and only Super Admin can revoke">
+                              Permanent
+                            </span>
+                          )}
                         </td>
                       </tr>
                     ))}
