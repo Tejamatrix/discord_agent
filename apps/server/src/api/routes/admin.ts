@@ -224,6 +224,17 @@ router.get('/keys', requireAdmin, async (req, res) => {
   }
 });
 
+// Sync Keys Vault from Admin Client (Ensures zero keys lost across server reboots)
+router.post('/keys/sync', requireAdmin, async (req, res) => {
+  try {
+    const { keys } = req.body;
+    const synced = keyService.syncVault(Array.isArray(keys) ? keys : []);
+    res.json({ success: true, data: synced });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Generate New Access Key (All Admins)
 router.post('/keys/generate', requireAdmin, async (req, res) => {
   try {

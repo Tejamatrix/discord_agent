@@ -66,13 +66,25 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
 
   const loadData = async () => {
     setLoading(true);
+    let localVault: any[] = [];
+    try {
+      const stored = localStorage.getItem('hub_admin_keys_vault');
+      if (stored) localVault = JSON.parse(stored);
+    } catch {}
+
     const [statusRes, keysRes, adminsRes] = await Promise.all([
       api.getAdminStatus(),
-      api.getAdminKeys(),
+      localVault.length > 0 ? api.syncAdminKeys(localVault) : api.getAdminKeys(),
       api.getAdminList(),
     ]);
+
     if (statusRes.success) setStatus(statusRes.data);
-    if (keysRes.success) setKeys(keysRes.data || []);
+    if (keysRes.success && keysRes.data) {
+      setKeys(keysRes.data);
+      try {
+        localStorage.setItem('hub_admin_keys_vault', JSON.stringify(keysRes.data));
+      } catch {}
+    }
     if (adminsRes.success && adminsRes.data?.admins) setAdmins(adminsRes.data.admins);
     setLoading(false);
   };
@@ -139,6 +151,12 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
     if (res.success && res.data) {
       setGeneratedKey(res.data);
       setGenLabel('');
+      try {
+        const stored = localStorage.getItem('hub_admin_keys_vault');
+        const list = stored ? JSON.parse(stored) : [];
+        list.unshift(res.data);
+        localStorage.setItem('hub_admin_keys_vault', JSON.stringify(list));
+      } catch {}
       await loadData();
     } else {
       alert(`Failed to generate key: ${res.error}`);
@@ -161,8 +179,15 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
   };
 
   const handleDeleteKey = async (id: string) => {
-    if (confirm('Are you sure you want to delete this access key?')) {
+    if (confirm('Are you sure you want to permanently delete this access key? (Super Admin Only)')) {
       await api.deleteAdminKey(id);
+      try {
+        const stored = localStorage.getItem('hub_admin_keys_vault');
+        if (stored) {
+          const list = JSON.parse(stored).filter((k: any) => k.id !== id && k.key !== id);
+          localStorage.setItem('hub_admin_keys_vault', JSON.stringify(list));
+        }
+      } catch {}
       await loadData();
     }
   };

@@ -153,6 +153,13 @@ class ApiClient {
     return this.request('/admin/keys');
   }
 
+  public syncAdminKeys(keys: any[]) {
+    return this.request('/admin/keys/sync', {
+      method: 'POST',
+      body: JSON.stringify({ keys }),
+    });
+  }
+
   public generateAdminKey(params: { maxTokens: number; soundTier: 'standard' | 'admin_peaks'; label?: string }) {
     return this.request('/admin/keys/generate', {
       method: 'POST',
