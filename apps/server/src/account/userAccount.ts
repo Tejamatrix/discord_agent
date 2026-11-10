@@ -7,6 +7,7 @@ import {
   VoiceConnectionStatus,
   NoSubscriberBehavior,
   entersState,
+  StreamType,
 } from '@discordjs/voice';
 import fs from 'fs';
 import { PassThrough, Readable } from 'stream';
@@ -439,11 +440,13 @@ export class AccountSlot {
         guildId: guildId,
         adapterCreator: channel.guild.voiceAdapterCreator,
         group: uniqueVoiceGroup,
-        selfMute: this.selfMute,
+        selfMute: false,
         selfDeaf: this.selfDeaf,
         debug: true,
-        daveEncryption: true,
+        daveEncryption: false,
       });
+
+      this.selfMute = false;
 
       if (this.audioPlayer) {
         connection.subscribe(this.audioPlayer);
@@ -589,6 +592,11 @@ export class AccountSlot {
 
     this.ensureAudioPlayer();
 
+    // Ensure account is actively unmuted so Discord broadcasts the audio
+    if (this.selfMute) {
+      this.setSelfMute(false);
+    }
+
     let connection = this.djsVoiceConnection;
     const guild = this.client?.guilds.cache.get(this.currentVoiceGuildId!);
 
@@ -600,16 +608,17 @@ export class AccountSlot {
           guildId: this.currentVoiceGuildId!,
           adapterCreator: guild.voiceAdapterCreator,
           group: uniqueVoiceGroup,
-          selfMute: this.selfMute,
+          selfMute: false,
           selfDeaf: this.selfDeaf,
           debug: true,
-          daveEncryption: true,
+          daveEncryption: false,
         });
         this.djsVoiceConnection = connection;
-        if (this.audioPlayer) {
-          connection.subscribe(this.audioPlayer);
-        }
       }
+    }
+
+    if (connection && this.audioPlayer) {
+      connection.subscribe(this.audioPlayer);
     }
 
     if (connection && connection.state?.status !== VoiceConnectionStatus.Ready) {
@@ -622,6 +631,7 @@ export class AccountSlot {
 
     const resource = createAudioResource(audioSource, {
       inlineVolume: true,
+      inputType: StreamType.Arbitrary,
     });
     if (resource.volume) {
       resource.volume.setVolume(calculatedVolume);
