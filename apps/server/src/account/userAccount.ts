@@ -192,16 +192,16 @@ export class AccountSlot {
       waitGuildTimeout: 0, // Do not wait for 100+ guilds to finish streaming before emitting ready
       retryLimit: 1,
       restRequestTimeout: 15000,
-      shards: [0],
-      shardCount: 1,
     } as any);
 
-    // Fast Gateway URL resolution (avoid Cloudflare rate-limits on REST /gateway endpoint)
-    if ((client as any).api) {
-      (client as any).api.gateway = {
-        get: async () => ({ url: 'wss://gateway.discord.gg' }),
-      };
-    }
+    // Direct WebSocket Gateway connection (bypasses REST /gateway endpoint that Cloudflare rate limits on datacenters)
+    (client.ws as any).connect = async function () {
+      const gatewayURL = 'wss://gateway.discord.gg';
+      this.gateway = `${gatewayURL}/`;
+      this.totalShards = 1;
+      this.shardQueue = new Set([0].map((id: number) => new (WebSocketShard as any)(this, id)));
+      return this.createShards();
+    };
 
     client.on('debug', (info: string) => {
       if (info.includes('Heartbeat') || info.includes('ping') || info.includes('Latency')) return;
@@ -443,7 +443,7 @@ export class AccountSlot {
         selfMute: false,
         selfDeaf: this.selfDeaf,
         debug: true,
-        daveEncryption: false,
+        daveEncryption: true,
       });
 
       this.selfMute = false;
@@ -611,7 +611,7 @@ export class AccountSlot {
           selfMute: false,
           selfDeaf: this.selfDeaf,
           debug: true,
-          daveEncryption: false,
+          daveEncryption: true,
         });
         this.djsVoiceConnection = connection;
       }
