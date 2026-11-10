@@ -144,6 +144,10 @@ export class AccountSlot {
         },
       });
 
+      this.audioPlayer.on('stateChange', (oldState: any, newState: any) => {
+        console.log(`🎵 [Player State Slot ${this.slotIndex + 1}] ${oldState.status} -> ${newState.status}`);
+      });
+
       this.audioPlayer.on(AudioPlayerStatus.Playing, () => {
         console.log(`🔊 [Tenant ${this.tenantId}][Slot ${this.slotIndex + 1}] Audio stream playing in VC`);
         this.isPlayingAudio = true;
@@ -432,7 +436,7 @@ export class AccountSlot {
     this.ensureAudioPlayer();
 
     const uniqueVoiceGroup = `${this.tenantId}-slot-${this.slotIndex}`;
-    console.log(`[Slot ${this.slotIndex + 1}] Connecting to #${channelName} with DAVE E2EE (group: ${uniqueVoiceGroup})...`);
+    console.log(`[Slot ${this.slotIndex + 1}] Connecting to #${channelName} (group: ${uniqueVoiceGroup}, standard voice encryption)...`);
 
     try {
       const connection = djsJoinVoiceChannel({
@@ -443,10 +447,18 @@ export class AccountSlot {
         selfMute: false,
         selfDeaf: this.selfDeaf,
         debug: true,
-        daveEncryption: true,
+        daveEncryption: false,
       });
 
       this.selfMute = false;
+
+      connection.on('stateChange', (oldState, newState) => {
+        console.log(`🔊 [Voice State Slot ${this.slotIndex + 1}] ${oldState.status} -> ${newState.status}`);
+      });
+
+      connection.on('error', (err: any) => {
+        console.error(`❌ [Voice Connection Error Slot ${this.slotIndex + 1}]:`, err.message);
+      });
 
       if (this.audioPlayer) {
         connection.subscribe(this.audioPlayer);
@@ -611,7 +623,7 @@ export class AccountSlot {
           selfMute: false,
           selfDeaf: this.selfDeaf,
           debug: true,
-          daveEncryption: true,
+          daveEncryption: false,
         });
         this.djsVoiceConnection = connection;
       }
@@ -636,6 +648,10 @@ export class AccountSlot {
     if (resource.volume) {
       resource.volume.setVolume(calculatedVolume);
     }
+
+    resource.playStream.on('error', (err: any) => {
+      console.error(`❌ [Slot ${this.slotIndex + 1} Audio Resource Stream Error]:`, err.message);
+    });
     this.currentResource = resource;
     this.audioPlayer!.play(resource);
     this.isPlayingAudio = true;

@@ -245,6 +245,7 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
   const liveAudioContextRef = useRef<AudioContext | null>(null);
   const liveAnalyserRef = useRef<AnalyserNode | null>(null);
   const liveAnimFrameRef = useRef<number | null>(null);
+  const liveChunksRef = useRef<Blob[]>([]);
 
   const recStreamRef = useRef<MediaStream | null>(null);
   const recRecorderRef = useRef<MediaRecorder | null>(null);
@@ -337,11 +338,24 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
 
       const recorder = new MediaRecorder(stream, { mimeType });
       liveMediaRecorderRef.current = recorder;
+      liveChunksRef.current = [];
 
       recorder.ondataavailable = async (e) => {
         if (e.data && e.data.size > 0) {
+          liveChunksRef.current.push(e.data);
           const buffer = await e.data.arrayBuffer();
           wsService.sendLiveSpeakChunk(tenantId, buffer);
+        }
+      };
+
+      recorder.onstop = async () => {
+        if (liveChunksRef.current.length > 0) {
+          const blob = new Blob(liveChunksRef.current, { type: mimeType });
+          try {
+            await api.liveSpeakAudio(blob, liveGain, isJoint, activeSlotIndex);
+          } catch (e) {
+            console.warn('Live speak broadcast note:', e);
+          }
         }
       };
 
