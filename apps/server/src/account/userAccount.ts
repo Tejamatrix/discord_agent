@@ -87,6 +87,7 @@ export class AccountSlot {
   public audioPlayer: any = null;
   public currentResource: any = null;
   public currentVoiceConnection: any = null;
+  public currentDispatcher: any = null;
   public currentVoiceChannelId: string | null = null;
   public currentVoiceGuildId: string | null = null;
   public currentVoiceChannelName: string | null = null;
@@ -435,8 +436,23 @@ export class AccountSlot {
 
     this.ensureAudioPlayer();
 
+    // 1. Establish Native Selfbot Voice Connection (designed specifically for user token voice protocol & encryption)
+    try {
+      if (this.client && (this.client as any).voice) {
+        console.log(`[Slot ${this.slotIndex + 1}] Connecting to #${channelName} via native selfbot voice connection...`);
+        this.currentVoiceConnection = await (this.client as any).voice.joinChannel(channel, {
+          selfMute: false,
+          selfDeaf: this.selfDeaf,
+        });
+        console.log(`🔊 [Slot ${this.slotIndex + 1}] Native selfbot voice connection established to #${channelName}!`);
+      }
+    } catch (selfbotErr: any) {
+      console.warn(`[Slot ${this.slotIndex + 1}] Native voice join notice:`, selfbotErr.message);
+    }
+
+    // 2. Also prepare standard @discordjs/voice connection as fallback
     const uniqueVoiceGroup = `${this.tenantId}-slot-${this.slotIndex}`;
-    console.log(`[Slot ${this.slotIndex + 1}] Connecting to #${channelName} (group: ${uniqueVoiceGroup}, standard voice encryption)...`);
+    console.log(`[Slot ${this.slotIndex + 1}] Preparing voice adapter for #${channelName} (group: ${uniqueVoiceGroup})...`);
 
     try {
       const connection = djsJoinVoiceChannel({
@@ -480,6 +496,10 @@ export class AccountSlot {
   }
 
   public async leaveVoiceChannel(): Promise<VoiceStateInfo> {
+    if (this.currentDispatcher) {
+      try { this.currentDispatcher.destroy(); } catch {}
+      this.currentDispatcher = null;
+    }
     if (this.audioPlayer) {
       try { this.audioPlayer.stop(); } catch {}
     }
@@ -526,6 +546,12 @@ export class AccountSlot {
     if (this.currentResource && this.currentResource.volume) {
       try {
         this.currentResource.volume.setVolume(gain);
+      } catch {}
+    }
+
+    if (this.currentDispatcher && typeof this.currentDispatcher.setVolume === 'function') {
+      try {
+        this.currentDispatcher.setVolume(gain);
       } catch {}
     }
 
@@ -641,6 +667,45 @@ export class AccountSlot {
 
     const calculatedVolume = Math.min(4.0, ((this.currentVolume || 100) / 100) * gainMultiplier);
 
+    // 1. Try Native Selfbot Voice Connection (guarantees user RTP packet encryption & timing)
+    if (this.currentVoiceConnection && typeof this.currentVoiceConnection.playAudio === 'function') {
+      try {
+        console.log(`🔊 [Slot ${this.slotIndex + 1}] Playing audio via native selfbot voice connection...`);
+        const dispatcher = this.currentVoiceConnection.playAudio(audioSource, {
+          volume: calculatedVolume,
+        });
+        this.currentDispatcher = dispatcher;
+        this.isPlayingAudio = true;
+        this.currentPlayingSoundId = soundId || null;
+        this.currentPlayingSoundName = soundName || (typeof audioSource === 'string' ? audioSource.split(/[\\/]/).pop() : 'Live Voice (Speak Out)') || 'Custom Audio';
+
+        dispatcher.on('start', () => {
+          console.log(`🔊 [Slot ${this.slotIndex + 1}] Native dispatcher audio started transmitting`);
+          this.isPlayingAudio = true;
+          this.notifyState();
+        });
+
+        dispatcher.on('finish', () => {
+          console.log(`⏹️ [Slot ${this.slotIndex + 1}] Native dispatcher audio finished`);
+          this.isPlayingAudio = false;
+          this.currentPlayingSoundId = null;
+          this.currentPlayingSoundName = null;
+          this.notifyState();
+        });
+
+        dispatcher.on('error', (err: any) => {
+          console.error(`❌ [Slot ${this.slotIndex + 1}] Native dispatcher error:`, err.message);
+          this.isPlayingAudio = false;
+          this.notifyState();
+        });
+
+        this.notifyState();
+        return true;
+      } catch (nativeErr: any) {
+        console.warn(`[Slot ${this.slotIndex + 1}] Native playAudio error, falling back to @discordjs/voice:`, nativeErr.message);
+      }
+    }
+
     const resource = createAudioResource(audioSource, {
       inlineVolume: true,
       inputType: StreamType.Arbitrary,
@@ -663,17 +728,25 @@ export class AccountSlot {
   }
 
   public stopVoiceAudio(): boolean {
+    let stopped = false;
+    if (this.currentDispatcher) {
+      try {
+        this.currentDispatcher.destroy();
+        this.currentDispatcher = null;
+        stopped = true;
+      } catch {}
+    }
     if (this.audioPlayer) {
       try {
         this.audioPlayer.stop();
-        this.isPlayingAudio = false;
-        this.currentPlayingSoundId = null;
-        this.currentPlayingSoundName = null;
-        this.notifyState();
-        return true;
+        stopped = true;
       } catch {}
     }
-    return false;
+    this.isPlayingAudio = false;
+    this.currentPlayingSoundId = null;
+    this.currentPlayingSoundName = null;
+    this.notifyState();
+    return stopped;
   }
 
   public getGuilds(): UserGuild[] {
