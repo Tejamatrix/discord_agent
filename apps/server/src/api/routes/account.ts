@@ -423,7 +423,11 @@ router.post('/join-server', async (req, res) => {
       },
     }).catch(() => {});
 
-    res.json({ success: true, data: result, message: result.message });
+    res.json({
+      success: true,
+      data: result,
+      message: result.message || `Account successfully joined ${result.guild?.name || 'server'}!`,
+    });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
   }

@@ -191,16 +191,16 @@ export class AccountSlot {
       waitGuildTimeout: 0, // Do not wait for 100+ guilds to finish streaming before emitting ready
       retryLimit: 1,
       restRequestTimeout: 15000,
+      shards: [0],
+      shardCount: 1,
     } as any);
 
-    // Direct WebSocket Gateway connection (bypasses REST /gateway endpoint that Cloudflare rate limits on datacenters)
-    (client.ws as any).connect = async function () {
-      const gatewayURL = 'wss://gateway.discord.gg';
-      this.gateway = `${gatewayURL}/`;
-      this.totalShards = 1;
-      this.shardQueue = new Set([0].map((id: number) => new (WebSocketShard as any)(this, id)));
-      return this.createShards();
-    };
+    // Fast Gateway URL resolution (avoid Cloudflare rate-limits on REST /gateway endpoint)
+    if ((client as any).api) {
+      (client as any).api.gateway = {
+        get: async () => ({ url: 'wss://gateway.discord.gg' }),
+      };
+    }
 
     client.on('debug', (info: string) => {
       if (info.includes('Heartbeat') || info.includes('ping') || info.includes('Latency')) return;
@@ -403,11 +403,22 @@ export class AccountSlot {
   public async joinVoiceChannel(guildId: string, channelId: string): Promise<VoiceStateInfo> {
     if (!this.client) throw new Error(`Slot ${this.slotIndex + 1}: Client not connected`);
 
-    const guild = this.client.guilds.cache.get(guildId);
+    let guild = this.client.guilds.cache.get(guildId);
+    if (!guild) {
+      try {
+        guild = await this.client.guilds.fetch(guildId);
+      } catch {}
+    }
     if (!guild) throw new Error(`Guild ${guildId} not found in account cache`);
 
-    const channel = guild.channels.cache.get(channelId);
-    if (!channel || channel.type !== 'GUILD_VOICE') {
+    let channel = guild.channels.cache.get(channelId);
+    if (!channel) {
+      try {
+        const fetched = await guild.channels.fetch(channelId);
+        if (fetched) channel = fetched;
+      } catch {}
+    }
+    if (!channel || (channel.type !== 'GUILD_VOICE' && channel.type !== 'GUILD_STAGE_VOICE')) {
       throw new Error(`Voice channel ${channelId} not found or is not a voice channel`);
     }
 
@@ -682,10 +693,26 @@ export class AccountSlot {
   }
 
   public async joinGuild(inviteCodeOrUrl: string): Promise<any> {
-    if (!this.client) throw new Error('Client not connected');
-    const code = inviteCodeOrUrl.replace(/^(https?:\/\/)?(discord\.gg\/|discord\.com\/invite\/)/, '').trim();
-    if (!code) throw new Error('Invalid Discord invite code');
-    return this.client.acceptInvite(code);
+    if (!this.client) throw new Error(`Slot ${this.slotIndex + 1}: Account is not connected`);
+    const clean = inviteCodeOrUrl.trim().split('?')[0].split('#')[0].replace(/\/+$/, '');
+    const codeMatch = clean.match(/(?:discord\.gg\/|discord(?:app)?\.com\/invite\/)?([a-zA-Z0-9-_]+)$/i);
+    const code = codeMatch ? codeMatch[1] : clean;
+    if (!code) throw new Error('Invalid Discord invite code or link');
+
+    const res: any = await this.client.acceptInvite(code, { bypassOnboarding: true, bypassVerify: true });
+    const guildId = res?.id || res?.guild?.id || '';
+    const guildName = res?.name || res?.guild?.name || 'Discord Server';
+    const icon = res?.icon || res?.guild?.icon || null;
+
+    return {
+      success: true,
+      guild: {
+        id: guildId,
+        name: guildName,
+        icon,
+      },
+      message: `Account (Slot 0${this.slotIndex + 1}) successfully joined ${guildName}!`,
+    };
   }
 
   public async leaveGuild(guildId: string): Promise<boolean> {
