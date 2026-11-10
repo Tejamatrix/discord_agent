@@ -13,10 +13,11 @@
     "db:migrate": "prisma migrate dev"
   },
   "dependencies": {
+    "@discordjs/opus": "^0.11.0",
     "@discordjs/voice": "0.19.2",
-    "@snazzah/davey": "^0.1.12",
     "@hub/shared": "*",
     "@prisma/client": "^5.14.0",
+    "@snazzah/davey": "^0.1.12",
     "@stablelib/xchacha20poly1305": "^2.0.1",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",

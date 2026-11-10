@@ -73,6 +73,8 @@ app.get('/', (req, res) => {
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
+    version: '1.2.6-native-opus',
+    uptime: Math.round(process.uptime()),
     timestamp: new Date().toISOString(),
     bot_online: botService.isConnected,
     demo_mode: config.demoMode,
