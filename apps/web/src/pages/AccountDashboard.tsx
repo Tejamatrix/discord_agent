@@ -35,7 +35,11 @@ import {
   Settings2,
   User,
   Users,
+  RotateCcw,
+  Save,
 } from 'lucide-react';
+import { api } from '../services/api';
+import { wsService } from '../services/socket';
 
 interface UserProfile {
   id: string;
@@ -220,6 +224,313 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
   const userAudios = sounds.filter((s) => !s.isPreset);
   const presetSounds = sounds.filter((s) => s.isPreset);
 
+  // --- LIVE MICROPHONE "SPEAK OUT" & VOICE RECORDING DECK ---
+  const tenantId = adminEmail ? `admin_${adminEmail.toLowerCase()}` : (activeKey ? `key_${activeKey.toUpperCase()}` : 'default');
+
+  const [isLiveSpeaking, setIsLiveSpeaking] = useState(false);
+  const [isHoldTalking, setIsHoldTalking] = useState(false);
+  const [liveGain, setLiveGain] = useState<number>(2.8);
+  const [micAudioLevel, setMicAudioLevel] = useState<number>(0);
+  const [micError, setMicError] = useState<string | null>(null);
+
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordDuration, setRecordDuration] = useState(0);
+  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
+  const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
+  const [broadcastingRecorded, setBroadcastingRecorded] = useState(false);
+  const [savingRecording, setSavingRecording] = useState(false);
+
+  const liveMediaStreamRef = useRef<MediaStream | null>(null);
+  const liveMediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const liveAudioContextRef = useRef<AudioContext | null>(null);
+  const liveAnalyserRef = useRef<AnalyserNode | null>(null);
+  const liveAnimFrameRef = useRef<number | null>(null);
+
+  const recStreamRef = useRef<MediaStream | null>(null);
+  const recRecorderRef = useRef<MediaRecorder | null>(null);
+  const recIntervalRef = useRef<any>(null);
+  const recChunksRef = useRef<Blob[]>([]);
+
+  // Cleanup microphones, streams & recorders on unmount
+  useEffect(() => {
+    return () => {
+      if (liveMediaRecorderRef.current && liveMediaRecorderRef.current.state !== 'inactive') {
+        try { liveMediaRecorderRef.current.stop(); } catch {}
+      }
+      if (liveMediaStreamRef.current) {
+        liveMediaStreamRef.current.getTracks().forEach((t) => t.stop());
+      }
+      if (liveAudioContextRef.current) {
+        try { liveAudioContextRef.current.close(); } catch {}
+      }
+      if (liveAnimFrameRef.current) {
+        cancelAnimationFrame(liveAnimFrameRef.current);
+      }
+      if (recRecorderRef.current && recRecorderRef.current.state !== 'inactive') {
+        try { recRecorderRef.current.stop(); } catch {}
+      }
+      if (recStreamRef.current) {
+        recStreamRef.current.getTracks().forEach((t) => t.stop());
+      }
+      if (recIntervalRef.current) {
+        clearInterval(recIntervalRef.current);
+      }
+    };
+  }, []);
+
+  const updateAudioLevel = () => {
+    if (liveAnalyserRef.current) {
+      const dataArray = new Uint8Array(liveAnalyserRef.current.frequencyBinCount);
+      liveAnalyserRef.current.getByteFrequencyData(dataArray);
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        sum += dataArray[i];
+      }
+      const avg = sum / dataArray.length;
+      setMicAudioLevel(Math.min(100, Math.round((avg / 128) * 100)));
+    }
+    liveAnimFrameRef.current = requestAnimationFrame(updateAudioLevel);
+  };
+
+  const startLiveSpeak = async () => {
+    setMicError(null);
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Microphone capture is not supported by your browser or environment.');
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: false,
+        },
+      });
+      liveMediaStreamRef.current = stream;
+
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        const audioCtx = new AudioCtx();
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 64;
+        const source = audioCtx.createMediaStreamSource(stream);
+        source.connect(analyser);
+
+        liveAudioContextRef.current = audioCtx;
+        liveAnalyserRef.current = analyser;
+        updateAudioLevel();
+      }
+
+      const isJoint = playbackMode === 'joint';
+      const startRes = await wsService.startLiveSpeak(tenantId, liveGain, isJoint, activeSlotIndex);
+      if (!startRes.success && startRes.error) {
+        throw new Error(startRes.error);
+      }
+
+      let mimeType = 'audio/webm';
+      if (typeof MediaRecorder !== 'undefined') {
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          mimeType = 'audio/webm;codecs=opus';
+        } else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
+          mimeType = 'audio/ogg;codecs=opus';
+        }
+      }
+
+      const recorder = new MediaRecorder(stream, { mimeType });
+      liveMediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = async (e) => {
+        if (e.data && e.data.size > 0) {
+          const buffer = await e.data.arrayBuffer();
+          wsService.sendLiveSpeakChunk(tenantId, buffer);
+        }
+      };
+
+      recorder.start(200);
+      setIsLiveSpeaking(true);
+      setBanner({
+        text: isJoint
+          ? '🎙️ SPEAK OUT ACTIVE! Your voice is broadcasting live across ALL connected accounts in VC with ultra loud volume!'
+          : `🎙️ SPEAK OUT ACTIVE! Broadcasting live on Slot 0${activeSlotIndex + 1} (${profile?.username})!`,
+        type: 'success',
+      });
+    } catch (err: any) {
+      console.error('Failed to start live speak:', err);
+      setMicError(err.message || 'Microphone access denied or error');
+      stopLiveSpeak();
+    }
+  };
+
+  const stopLiveSpeak = async () => {
+    setIsLiveSpeaking(false);
+    setIsHoldTalking(false);
+    setMicAudioLevel(0);
+
+    if (liveAnimFrameRef.current) {
+      cancelAnimationFrame(liveAnimFrameRef.current);
+      liveAnimFrameRef.current = null;
+    }
+    if (liveMediaRecorderRef.current && liveMediaRecorderRef.current.state !== 'inactive') {
+      try {
+        liveMediaRecorderRef.current.stop();
+      } catch {}
+      liveMediaRecorderRef.current = null;
+    }
+    if (liveMediaStreamRef.current) {
+      liveMediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      liveMediaStreamRef.current = null;
+    }
+    if (liveAudioContextRef.current) {
+      try {
+        liveAudioContextRef.current.close();
+      } catch {}
+      liveAudioContextRef.current = null;
+    }
+
+    try {
+      await wsService.stopLiveSpeak(tenantId);
+    } catch {}
+  };
+
+  const startRecording = async () => {
+    setMicError(null);
+    setRecordedBlob(null);
+    if (recordedAudioUrl) {
+      URL.revokeObjectURL(recordedAudioUrl);
+      setRecordedAudioUrl(null);
+    }
+    recChunksRef.current = [];
+    setRecordDuration(0);
+
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Microphone capture is not supported by your browser.');
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recStreamRef.current = stream;
+
+      let mimeType = 'audio/webm';
+      if (typeof MediaRecorder !== 'undefined') {
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          mimeType = 'audio/webm;codecs=opus';
+        } else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
+          mimeType = 'audio/ogg;codecs=opus';
+        }
+      }
+
+      const recorder = new MediaRecorder(stream, { mimeType });
+      recRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          recChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(recChunksRef.current, { type: mimeType });
+        setRecordedBlob(blob);
+        const url = URL.createObjectURL(blob);
+        setRecordedAudioUrl(url);
+      };
+
+      recorder.start(100);
+      setIsRecording(true);
+
+      recIntervalRef.current = setInterval(() => {
+        setRecordDuration((prev) => prev + 1);
+      }, 1000);
+    } catch (err: any) {
+      setMicError(err.message || 'Microphone access denied');
+      setIsRecording(false);
+    }
+  };
+
+  const stopRecording = () => {
+    setIsRecording(false);
+    if (recIntervalRef.current) {
+      clearInterval(recIntervalRef.current);
+      recIntervalRef.current = null;
+    }
+    if (recRecorderRef.current && recRecorderRef.current.state !== 'inactive') {
+      try {
+        recRecorderRef.current.stop();
+      } catch {}
+    }
+    if (recStreamRef.current) {
+      recStreamRef.current.getTracks().forEach((track) => track.stop());
+      recStreamRef.current = null;
+    }
+  };
+
+  const handleBroadcastRecording = async () => {
+    if (!recordedBlob) return;
+    setBroadcastingRecorded(true);
+    try {
+      const isJoint = playbackMode === 'joint';
+      const res = await api.liveSpeakAudio(recordedBlob, liveGain, isJoint, activeSlotIndex);
+      if (res.success) {
+        setBanner({
+          text: isJoint
+            ? '⚡ Recording successfully broadcasted across ALL connected accounts in VC with ultra loud volume!'
+            : `⚡ Recording broadcasted to Slot 0${activeSlotIndex + 1}!`,
+          type: 'success',
+        });
+        setTimeout(() => setBanner(null), 6000);
+      } else {
+        setBanner({
+          text: res.error || 'Failed to broadcast recording to Discord',
+          type: 'error',
+        });
+      }
+    } catch (err: any) {
+      setBanner({
+        text: err.message || 'Error broadcasting recording',
+        type: 'error',
+      });
+    } finally {
+      setBroadcastingRecorded(false);
+    }
+  };
+
+  const handleSaveRecordingToLibrary = async () => {
+    if (!recordedBlob) return;
+    setSavingRecording(true);
+    try {
+      const now = new Date();
+      const fileName = `Voice_Rec_${now.getHours()}${now.getMinutes()}${now.getSeconds()}.webm`;
+      const file = new File([recordedBlob], fileName, { type: recordedBlob.type || 'audio/webm' });
+      const res = await onUploadAudio(file);
+      const isSuccess = typeof res === 'boolean' ? res : res.success;
+      if (isSuccess) {
+        setActiveAudioTab('my-audios');
+        setBanner({
+          text: `"${fileName}" saved to your soundboard library!`,
+          type: 'success',
+        });
+        setTimeout(() => setBanner(null), 5000);
+      }
+    } catch (err: any) {
+      setBanner({ text: err.message || 'Error saving recording', type: 'error' });
+    } finally {
+      setSavingRecording(false);
+    }
+  };
+
+  const handleResetRecording = () => {
+    if (recordedAudioUrl) {
+      URL.revokeObjectURL(recordedAudioUrl);
+      setRecordedAudioUrl(null);
+    }
+    setRecordedBlob(null);
+    setRecordDuration(0);
+  };
+
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
   // Reset playing sound ID when audio playback ends
   useEffect(() => {
     if (!voiceState.isPlayingAudio) {
@@ -381,6 +692,9 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
   };
 
   const handleStopSound = () => {
+    if (isLiveSpeaking) {
+      stopLiveSpeak();
+    }
     setPlayingSoundId(null);
     onStopAudio(playbackMode);
   };
@@ -1053,6 +1367,266 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
                         <Sparkles className="w-3.5 h-3.5" />
                         <span>{boostActive ? (isHighPeaks ? '🔥 300% Peak Overdrive' : '🔊 Loud Boost Active') : 'Enable Boost'}</span>
                       </button>
+                    </div>
+                  </div>
+
+                  {/* SECTION: LIVE MICROPHONE STUDIO: SPEAK OUT & VOICE RECORDING */}
+                  <div className="bg-[#FAF8F5] border-3 border-black rounded-xl p-4 shadow-neo space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b-2 border-black/10 pb-2.5">
+                      <div>
+                        <h4 className="text-xs sm:text-sm font-black uppercase text-black flex items-center gap-2">
+                          <Mic className="w-4 h-4 text-rose-600" />
+                          <span>Live Microphone Studio: Speak Out & Voice Recording</span>
+                        </h4>
+                        <p className="text-[11px] font-bold text-gray-600">
+                          Speak live in real time to broadcast your voice directly into Discord VC, or record a clip first to preview and blast across accounts!
+                        </p>
+                      </div>
+
+                      {/* Volume Boost / Loudness Overdrive Selector */}
+                      <div className="flex items-center space-x-1.5 bg-white border-2 border-black px-2.5 py-1 rounded-lg shrink-0">
+                        <Volume2 className="w-3.5 h-3.5 text-black" />
+                        <span className="text-[10px] font-black uppercase text-black mr-1">Mic Boost:</span>
+                        <button
+                          type="button"
+                          onClick={() => setLiveGain(1.8)}
+                          className={`btn-neo px-2 py-0.5 text-[10px] font-black ${liveGain === 1.8 ? 'btn-neo-yellow' : 'btn-neo-white'}`}
+                        >
+                          1.8x
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setLiveGain(2.8)}
+                          className={`btn-neo px-2 py-0.5 text-[10px] font-black ${liveGain === 2.8 ? 'btn-neo-yellow' : 'btn-neo-white'}`}
+                        >
+                          2.8x Loud
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setLiveGain(3.5)}
+                          className={`btn-neo px-2 py-0.5 text-[10px] font-black ${liveGain === 3.5 ? 'btn-neo-coral' : 'btn-neo-white'}`}
+                        >
+                          3.5x Max 🔥
+                        </button>
+                      </div>
+                    </div>
+
+                    {micError && (
+                      <div className="p-2.5 bg-red-100 border-2 border-red-500 rounded-lg text-xs font-bold text-red-800 flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 shrink-0 text-red-600" />
+                        <span>{micError}</span>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {/* OPTION 1: SPEAK OUT (LIVE MIC BROADCAST) */}
+                      <div className={`p-4 rounded-xl border-3 border-black space-y-3 transition-colors ${
+                        isLiveSpeaking ? 'bg-amber-100 shadow-neo' : 'bg-white shadow-neo-sm'
+                      }`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <div className={`w-3 h-3 rounded-full ${isLiveSpeaking ? 'bg-red-500 animate-ping' : 'bg-gray-400'}`} />
+                            <span className="text-xs font-black uppercase tracking-tight text-black">
+                              🎙️ Option 1: Speak Out (Live Mic)
+                            </span>
+                          </div>
+                          <span className={`badge-neo px-2 py-0.5 text-[10px] font-mono ${
+                            isLiveSpeaking ? 'bg-rose-500 text-white animate-pulse' : 'bg-gray-200 text-black'
+                          }`}>
+                            {isLiveSpeaking ? '🔴 LIVE ON-AIR' : '⚪ IDLE'}
+                          </span>
+                        </div>
+
+                        <p className="text-[11px] font-bold text-gray-600 leading-tight">
+                          Talk directly into your microphone. Your live voice streams immediately into Discord VC on{' '}
+                          <strong className="text-black">
+                            {playbackMode === 'joint' ? 'ALL CONNECTED ACCOUNTS' : `Slot 0${activeSlotIndex + 1}`}
+                          </strong>{' '}
+                          at amplified loud volume!
+                        </p>
+
+                        {/* Real-time Decibel / VU Meter Bar */}
+                        <div className="space-y-1">
+                          <div className="flex justify-between items-center text-[10px] font-black uppercase text-gray-500">
+                            <span>Live Audio Input Level</span>
+                            <span className="font-mono">{micAudioLevel}%</span>
+                          </div>
+                          <div className="flex items-end justify-center space-x-1 h-7 bg-black/5 rounded-lg p-1 border border-black/20">
+                            {[...Array(16)].map((_, i) => {
+                              const threshold = (i / 16) * 100;
+                              const isLit = isLiveSpeaking && micAudioLevel >= threshold;
+                              return (
+                                <span
+                                  key={i}
+                                  className={`w-1.5 rounded-sm transition-all duration-75 ${
+                                    isLit
+                                      ? i > 12
+                                        ? 'bg-rose-500 h-5'
+                                        : i > 8
+                                        ? 'bg-amber-400 h-4'
+                                        : 'bg-emerald-500 h-3.5'
+                                      : 'bg-black/15 h-1.5'
+                                  }`}
+                                />
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Action Buttons for Speak Out */}
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={isLiveSpeaking ? stopLiveSpeak : startLiveSpeak}
+                            className={`btn-neo flex-1 py-2.5 px-4 text-xs font-black uppercase flex items-center justify-center space-x-2 ${
+                              isLiveSpeaking ? 'btn-neo-coral' : 'btn-neo-yellow'
+                            }`}
+                          >
+                            {isLiveSpeaking ? (
+                              <>
+                                <Square className="w-4 h-4 fill-current" />
+                                <span>⏹️ Stop Speak Out</span>
+                              </>
+                            ) : (
+                              <>
+                                <Radio className="w-4 h-4" />
+                                <span>🎙️ Start Live Speak Out</span>
+                              </>
+                            )}
+                          </button>
+
+                          {/* Push-to-Talk Hold Button */}
+                          <button
+                            type="button"
+                            onMouseDown={() => {
+                              if (!isLiveSpeaking) {
+                                setIsHoldTalking(true);
+                                startLiveSpeak();
+                              }
+                            }}
+                            onMouseUp={() => {
+                              if (isHoldTalking) {
+                                stopLiveSpeak();
+                              }
+                            }}
+                            onTouchStart={() => {
+                              if (!isLiveSpeaking) {
+                                setIsHoldTalking(true);
+                                startLiveSpeak();
+                              }
+                            }}
+                            onTouchEnd={() => {
+                              if (isHoldTalking) {
+                                stopLiveSpeak();
+                              }
+                            }}
+                            className={`btn-neo px-3 py-2.5 text-xs font-black uppercase flex items-center space-x-1.5 select-none ${
+                              isHoldTalking ? 'btn-neo-lime' : 'btn-neo-white'
+                            }`}
+                            title="Press & hold to speak, release to stop"
+                          >
+                            <Mic className="w-3.5 h-3.5" />
+                            <span>{isHoldTalking ? 'Speaking...' : 'Hold to Speak'}</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* OPTION 2: BESIDE IT: VOICE RECORDING */}
+                      <div className={`p-4 rounded-xl border-3 border-black space-y-3 transition-colors ${
+                        isRecording ? 'bg-rose-50 shadow-neo' : 'bg-white shadow-neo-sm'
+                      }`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <div className={`w-3 h-3 rounded-full ${isRecording ? 'bg-red-600 animate-ping' : 'bg-gray-400'}`} />
+                            <span className="text-xs font-black uppercase tracking-tight text-black">
+                              🔴 Option 2: Voice Recording
+                            </span>
+                          </div>
+                          <span className={`badge-neo px-2 py-0.5 text-[10px] font-mono ${
+                            isRecording ? 'bg-rose-600 text-white animate-pulse' : 'bg-gray-200 text-black'
+                          }`}>
+                            {isRecording ? `REC ${formatDuration(recordDuration)}` : 'READY'}
+                          </span>
+                        </div>
+
+                        <p className="text-[11px] font-bold text-gray-600 leading-tight">
+                          Record audio from your mic first. Review it with the player, then blast it loud to all connected accounts or save it to your library!
+                        </p>
+
+                        {/* Recording Player / Status Area */}
+                        {recordedAudioUrl ? (
+                          <div className="p-2.5 bg-[#FAF8F5] border-2 border-black rounded-lg space-y-2">
+                            <div className="flex items-center justify-between text-[10px] font-mono font-bold text-gray-600">
+                              <span>PREVIEW RECORDING ({formatDuration(recordDuration)}):</span>
+                              <button
+                                onClick={handleResetRecording}
+                                className="text-red-600 hover:underline flex items-center gap-1 font-bold"
+                              >
+                                <RotateCcw className="w-3 h-3" /> Discard
+                              </button>
+                            </div>
+                            <audio controls src={recordedAudioUrl} className="w-full h-8 outline-none" />
+                          </div>
+                        ) : (
+                          <div className="h-14 flex items-center justify-center border-2 border-dashed border-black/20 rounded-lg text-xs font-bold text-gray-500 bg-black/5">
+                            {isRecording ? (
+                              <div className="flex items-center space-x-2 text-rose-600 font-mono font-black animate-pulse">
+                                <span className="w-2.5 h-2.5 bg-rose-600 rounded-full animate-ping" />
+                                <span>RECORDING IN PROGRESS ({formatDuration(recordDuration)})...</span>
+                              </div>
+                            ) : (
+                              <span>No voice recording yet. Click "Start Recording" below.</span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Recording Actions */}
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                          {!recordedAudioUrl ? (
+                            <button
+                              type="button"
+                              onClick={isRecording ? stopRecording : startRecording}
+                              className={`btn-neo w-full py-2.5 px-4 text-xs font-black uppercase flex items-center justify-center space-x-2 ${
+                                isRecording ? 'btn-neo-coral' : 'btn-neo-white'
+                              }`}
+                            >
+                              {isRecording ? (
+                                <>
+                                  <Square className="w-4 h-4 fill-current" />
+                                  <span>⏹️ Stop Recording</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Mic className="w-4 h-4 text-rose-600" />
+                                  <span>🔴 Start Recording Voice</span>
+                                </>
+                              )}
+                            </button>
+                          ) : (
+                            <div className="flex flex-wrap items-center gap-2 w-full">
+                              <button
+                                type="button"
+                                onClick={handleBroadcastRecording}
+                                disabled={broadcastingRecorded}
+                                className="btn-neo btn-neo-lime flex-1 py-2 px-3 text-xs font-black uppercase flex items-center justify-center space-x-1.5 disabled:opacity-50"
+                              >
+                                <Zap className="w-3.5 h-3.5" />
+                                <span>{broadcastingRecorded ? 'Broadcasting...' : '⚡ Blast to All Accounts'}</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={handleSaveRecordingToLibrary}
+                                disabled={savingRecording}
+                                className="btn-neo btn-neo-white py-2 px-3 text-xs font-black uppercase flex items-center justify-center space-x-1.5 disabled:opacity-50"
+                              >
+                                <Save className="w-3.5 h-3.5" />
+                                <span>{savingRecording ? 'Saving...' : 'Save'}</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
 

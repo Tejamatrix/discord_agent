@@ -355,6 +355,20 @@ class ApiClient {
     });
   }
 
+  public liveSpeakAudio(audioBlob: Blob, gain: number = 3.0, broadcast: boolean = true, slotIndex?: number) {
+    const formData = new FormData();
+    formData.append('audio', audioBlob, 'live-mic.webm');
+    formData.append('gain', String(gain));
+    formData.append('broadcast', String(broadcast));
+    if (slotIndex !== undefined) {
+      formData.append('slotIndex', String(slotIndex));
+    }
+    return this.request('/account/voice/live-speak', {
+      method: 'POST',
+      body: formData,
+    });
+  }
+
   public getAudios() {
     return this.request('/account/audio');
   }

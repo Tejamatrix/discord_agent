@@ -35,11 +35,11 @@ const upload = multer({
     fileSize: 50 * 1024 * 1024, // 50 MB max audio file size
   },
   fileFilter: (req, file, cb) => {
-    const allowed = /\.(mp3|wav|ogg|m4a|flac|aac|opus)$/i;
+    const allowed = /\.(mp3|wav|ogg|m4a|flac|aac|opus|webm)$/i;
     if (allowed.test(file.originalname)) {
       cb(null, true);
     } else {
-      cb(new Error('Only audio files (mp3, wav, ogg, m4a, flac, aac, opus) are supported'));
+      cb(new Error('Only audio files (mp3, wav, ogg, m4a, flac, aac, opus, webm) are supported'));
     }
   },
 });
@@ -600,6 +600,54 @@ router.post('/voice/play-sound', async (req, res) => {
       data: {
         sound: sound.name,
         voiceState: tenant.session.getVoiceState(slotIndex),
+      },
+    });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Voice: Instant Live Speak Broadcast (Mic Recording / Live Voice Output)
+router.post('/voice/live-speak', upload.single('audio'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'No audio stream or recording received' });
+    }
+
+    const { boost, gain, mode, broadcast } = req.body;
+    const slotIndex = getTargetSlotIndex(req);
+    const isJoint = mode === 'joint' || broadcast === 'true' || broadcast === true || broadcast === undefined;
+    const tenant = await resolveTenantSession(req);
+
+    const parsedGain = gain ? parseFloat(gain) : (boost === 'true' || boost === true ? 3.5 : 2.8);
+    const filePath = req.file.path;
+
+    const playing = await tenant.session.playVoiceAudio(
+      filePath,
+      parsedGain,
+      tenant.soundTier,
+      tenant.isAdmin,
+      isJoint,
+      slotIndex,
+      'live-mic',
+      '🎤 Speak Out (Live Mic)'
+    );
+
+    // Auto cleanup recording file after playback or 45 seconds
+    setTimeout(() => {
+      try {
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch {}
+    }, 45000);
+
+    res.json({
+      success: playing,
+      data: {
+        voiceState: tenant.session.getVoiceState(slotIndex),
+        broadcast: isJoint,
+        gain: parsedGain,
       },
     });
   } catch (err: any) {

@@ -9,6 +9,7 @@ import {
   entersState,
 } from '@discordjs/voice';
 import fs from 'fs';
+import { PassThrough, Readable } from 'stream';
 import { socketService } from '../socket';
 import { persistentTokenStore } from '../services/persistentTokenStore';
 
@@ -547,7 +548,7 @@ export class AccountSlot {
   }
 
   public async playVoiceAudio(
-    audioSource: string,
+    audioSource: string | Readable,
     gainMultiplier: number = 1.3,
     soundId?: string,
     soundName?: string
@@ -618,7 +619,7 @@ export class AccountSlot {
     this.audioPlayer!.play(resource);
     this.isPlayingAudio = true;
     this.currentPlayingSoundId = soundId || null;
-    this.currentPlayingSoundName = soundName || audioSource.split(/[\\/]/).pop() || 'Custom Audio';
+    this.currentPlayingSoundName = soundName || (typeof audioSource === 'string' ? audioSource.split(/[\\/]/).pop() : 'Live Voice (Speak Out)') || 'Custom Audio';
 
     this.notifyState();
     return true;
@@ -851,7 +852,7 @@ export class UserAccountSession {
   }
 
   public async playVoiceAudio(
-    audioSource: string,
+    audioSource: string | Readable,
     gainMultiplier: number = 1.3,
     soundTier: 'standard' | 'admin_peaks' = 'standard',
     isAdmin: boolean = false,
@@ -869,9 +870,17 @@ export class UserAccountSession {
         throw new Error('None of your connected accounts are currently in a voice channel. Connect to a voice channel first!');
       }
       let anyPlayed = false;
+      const isStream = typeof audioSource === 'object' && typeof (audioSource as any).pipe === 'function';
+
       for (const slot of activeVoiceSlots) {
         try {
-          await slot.playVoiceAudio(audioSource, cappedGain, soundId, soundName);
+          if (isStream) {
+            const slotStream = new PassThrough();
+            (audioSource as any).pipe(slotStream);
+            await slot.playVoiceAudio(slotStream, cappedGain, soundId, soundName);
+          } else {
+            await slot.playVoiceAudio(audioSource, cappedGain, soundId, soundName);
+          }
           anyPlayed = true;
         } catch (e: any) {
           console.warn(`[Joint Broadcast] Slot ${slot.slotIndex + 1} play note:`, e.message);
