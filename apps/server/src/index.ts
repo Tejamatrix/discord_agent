@@ -73,7 +73,7 @@ app.get('/', (req, res) => {
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    version: '1.2.9-dual-native-voice-engine',
+    version: '1.3.0-instant-voice-fast',
     uptime: Math.round(process.uptime()),
     timestamp: new Date().toISOString(),
     bot_online: botService.isConnected,
