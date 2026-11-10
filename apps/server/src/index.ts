@@ -8,6 +8,7 @@ process.on('unhandledRejection', (reason: any) => {
 import express from 'express';
 import http from 'http';
 import path from 'path';
+import fs from 'fs';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { config } from './config/env';
@@ -70,14 +71,26 @@ app.get('/', (req, res) => {
   });
 });
 
+let ffmpegCmd = 'none';
+try {
+  const ffmpegPath = require('ffmpeg-static');
+  if (ffmpegPath && fs.existsSync(ffmpegPath)) {
+    try {
+      fs.chmodSync(ffmpegPath, 0o755);
+    } catch {}
+    ffmpegCmd = ffmpegPath;
+  }
+} catch {}
+
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    version: '1.3.0-instant-voice-fast',
+    version: '1.3.1-voice-debug-diagnostics',
     uptime: Math.round(process.uptime()),
     timestamp: new Date().toISOString(),
     bot_online: botService.isConnected,
     demo_mode: config.demoMode,
+    ffmpeg_detected: ffmpegCmd,
   });
 });
 

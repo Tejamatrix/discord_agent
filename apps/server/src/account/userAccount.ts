@@ -635,8 +635,19 @@ export class AccountSlot {
       }
     }
 
+    if (connection && connection.state?.status !== VoiceConnectionStatus.Ready && connection.state?.status !== VoiceConnectionStatus.Destroyed) {
+      try {
+        console.log(`[Slot ${this.slotIndex + 1}] Waiting up to 3s for voice connection to reach Ready status (current: ${connection.state?.status})...`);
+        await entersState(connection, VoiceConnectionStatus.Ready, 3_000);
+        console.log(`🔊 [Slot ${this.slotIndex + 1}] Voice connection is Ready!`);
+      } catch (e: any) {
+        console.warn(`[Slot ${this.slotIndex + 1}] entersState note: ${e.message}`);
+      }
+    }
+
     if (connection && this.audioPlayer) {
       connection.subscribe(this.audioPlayer);
+      console.log(`[Slot ${this.slotIndex + 1}] Subscribed audio player to voice connection`);
     }
 
     const resource = createAudioResource(audioSource, {
@@ -680,6 +691,25 @@ export class AccountSlot {
     this.currentPlayingSoundName = null;
     this.notifyState();
     return stopped;
+  }
+
+  public getDebugVoiceInfo(): any {
+    return {
+      slot: this.slotIndex + 1,
+      isConnected: this.isConnected,
+      user: this.client?.user ? { id: this.client.user.id, tag: this.client.user.tag } : null,
+      voiceChannelId: this.currentVoiceChannelId,
+      voiceGuildId: this.currentVoiceGuildId,
+      voiceChannelName: this.currentVoiceChannelName,
+      connectionStatus: this.djsVoiceConnection?.state?.status || 'none',
+      playerStatus: this.audioPlayer?.state?.status || 'none',
+      isPlayingAudio: this.isPlayingAudio,
+      currentPlayingSoundId: this.currentPlayingSoundId,
+      currentPlayingSoundName: this.currentPlayingSoundName,
+      volume: this.currentVolume,
+      selfMute: this.selfMute,
+      selfDeaf: this.selfDeaf,
+    };
   }
 
   public getGuilds(): UserGuild[] {
@@ -976,6 +1006,11 @@ export class UserAccountSession {
   public getProfile(slotIndex?: number): UserAccountProfile | null {
     const slot = slotIndex !== undefined && slotIndex >= 0 ? this.getSlot(slotIndex) : this.getActiveSlot();
     return slot.profile;
+  }
+
+  public getDebugVoiceInfo(slotIndex?: number): any {
+    const slot = slotIndex !== undefined && slotIndex >= 0 ? this.getSlot(slotIndex) : this.getActiveSlot();
+    return slot.getDebugVoiceInfo();
   }
 
   public getVoiceState(slotIndex?: number): VoiceStateInfo {

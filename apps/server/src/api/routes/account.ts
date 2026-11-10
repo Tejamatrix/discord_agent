@@ -676,6 +676,18 @@ router.get('/voice/state', async (req, res) => {
   res.json({ success: true, data: tenant.session.getVoiceState(slotIndex) });
 });
 
+// Voice: Get Deep Debug Diagnostics
+router.get('/voice/debug', async (req, res) => {
+  try {
+    const slotIndex = getTargetSlotIndex(req);
+    const tenant = await resolveTenantSession(req);
+    const debug = tenant.session.getDebugVoiceInfo(slotIndex);
+    res.json({ success: true, data: debug });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // --- AUDIO UPLOADS & SOUNDBOARD API ---
 
 // Upload Audio File
