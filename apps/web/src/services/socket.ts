@@ -58,34 +58,6 @@ class WebSocketService {
       this.socket.off(event, callback);
     }
   }
-
-  // --- LIVE MICROPHONE "SPEAK OUT" REALTIME STREAMING ---
-  public startLiveSpeak(tenantId: string, gain: number = 3.0, broadcastAll: boolean = true, slotIndex?: number): Promise<{ success: boolean; error?: string }> {
-    return new Promise((resolve) => {
-      const s = this.connect();
-      s.emit('voice:speak_start', { tenantId, gain, broadcastAll, slotIndex }, (res: any) => {
-        resolve(res || { success: true });
-      });
-    });
-  }
-
-  public sendLiveSpeakChunk(tenantId: string, chunk: ArrayBuffer | Blob | Uint8Array) {
-    if (this.socket) {
-      this.socket.emit('voice:speak_chunk', { tenantId, chunk });
-    }
-  }
-
-  public stopLiveSpeak(tenantId: string): Promise<{ success: boolean }> {
-    return new Promise((resolve) => {
-      if (this.socket) {
-        this.socket.emit('voice:speak_stop', { tenantId }, (res: any) => {
-          resolve(res || { success: true });
-        });
-      } else {
-        resolve({ success: true });
-      }
-    });
-  }
 }
 
 export const wsService = new WebSocketService();

@@ -7,10 +7,8 @@ import {
   VoiceConnectionStatus,
   NoSubscriberBehavior,
   entersState,
-  StreamType,
 } from '@discordjs/voice';
 import fs from 'fs';
-import { PassThrough, Readable } from 'stream';
 import { socketService } from '../socket';
 import { persistentTokenStore } from '../services/persistentTokenStore';
 
@@ -87,7 +85,6 @@ export class AccountSlot {
   public audioPlayer: any = null;
   public currentResource: any = null;
   public currentVoiceConnection: any = null;
-  public currentDispatcher: any = null;
   public currentVoiceChannelId: string | null = null;
   public currentVoiceGuildId: string | null = null;
   public currentVoiceChannelName: string | null = null;
@@ -474,10 +471,6 @@ export class AccountSlot {
   }
 
   public async leaveVoiceChannel(): Promise<VoiceStateInfo> {
-    if (this.currentDispatcher) {
-      try { this.currentDispatcher.destroy(); } catch {}
-      this.currentDispatcher = null;
-    }
     if (this.audioPlayer) {
       try { this.audioPlayer.stop(); } catch {}
     }
@@ -527,12 +520,6 @@ export class AccountSlot {
       } catch {}
     }
 
-    if (this.currentDispatcher && typeof this.currentDispatcher.setVolume === 'function') {
-      try {
-        this.currentDispatcher.setVolume(gain);
-      } catch {}
-    }
-
     this.notifyState();
     return this.getVoiceState();
   }
@@ -578,7 +565,7 @@ export class AccountSlot {
   }
 
   public async playVoiceAudio(
-    audioSource: string | Readable,
+    audioSource: string,
     gainMultiplier: number = 1.3,
     soundId?: string,
     soundName?: string
@@ -608,7 +595,6 @@ export class AccountSlot {
 
     this.ensureAudioPlayer();
 
-    // Ensure account is actively unmuted so Discord broadcasts the audio
     if (this.selfMute) {
       this.setSelfMute(false);
     }
@@ -629,87 +615,47 @@ export class AccountSlot {
           selfMute: false,
           selfDeaf: this.selfDeaf,
           debug: true,
-          daveEncryption: false,
         });
         this.djsVoiceConnection = connection;
-      }
-    }
-
-    if (connection && connection.state?.status !== VoiceConnectionStatus.Ready && connection.state?.status !== VoiceConnectionStatus.Destroyed) {
-      try {
-        console.log(`[Slot ${this.slotIndex + 1}] Waiting up to 3s for voice connection to reach Ready status (current: ${connection.state?.status})...`);
-        await entersState(connection, VoiceConnectionStatus.Ready, 3_000);
-        console.log(`🔊 [Slot ${this.slotIndex + 1}] Voice connection is Ready!`);
-      } catch (e: any) {
-        console.warn(`[Slot ${this.slotIndex + 1}] entersState note: ${e.message}`);
+        if (this.audioPlayer) {
+          connection.subscribe(this.audioPlayer);
+        }
       }
     }
 
     if (connection && this.audioPlayer) {
       connection.subscribe(this.audioPlayer);
-      console.log(`[Slot ${this.slotIndex + 1}] Subscribed audio player to voice connection`);
     }
 
     const resource = createAudioResource(audioSource, {
       inlineVolume: true,
-      inputType: StreamType.Arbitrary,
     });
     if (resource.volume) {
       resource.volume.setVolume(calculatedVolume);
     }
 
-    resource.playStream.on('error', (err: any) => {
-      console.error(`❌ [Slot ${this.slotIndex + 1} Audio Resource Stream Error]:`, err.message);
-    });
     this.currentResource = resource;
     this.audioPlayer!.play(resource);
     this.isPlayingAudio = true;
     this.currentPlayingSoundId = soundId || null;
-    this.currentPlayingSoundName = soundName || (typeof audioSource === 'string' ? audioSource.split(/[\\/]/).pop() : 'Live Voice (Speak Out)') || 'Custom Audio';
+    this.currentPlayingSoundName = soundName || audioSource.split(/[\\/]/).pop() || 'Custom Audio';
 
     this.notifyState();
     return true;
   }
 
   public stopVoiceAudio(): boolean {
-    let stopped = false;
-    if (this.currentDispatcher) {
-      try {
-        this.currentDispatcher.destroy();
-        this.currentDispatcher = null;
-        stopped = true;
-      } catch {}
-    }
     if (this.audioPlayer) {
       try {
         this.audioPlayer.stop();
-        stopped = true;
+        this.isPlayingAudio = false;
+        this.currentPlayingSoundId = null;
+        this.currentPlayingSoundName = null;
+        this.notifyState();
+        return true;
       } catch {}
     }
-    this.isPlayingAudio = false;
-    this.currentPlayingSoundId = null;
-    this.currentPlayingSoundName = null;
-    this.notifyState();
-    return stopped;
-  }
-
-  public getDebugVoiceInfo(): any {
-    return {
-      slot: this.slotIndex + 1,
-      isConnected: this.isConnected,
-      user: this.client?.user ? { id: this.client.user.id, tag: this.client.user.tag } : null,
-      voiceChannelId: this.currentVoiceChannelId,
-      voiceGuildId: this.currentVoiceGuildId,
-      voiceChannelName: this.currentVoiceChannelName,
-      connectionStatus: this.djsVoiceConnection?.state?.status || 'none',
-      playerStatus: this.audioPlayer?.state?.status || 'none',
-      isPlayingAudio: this.isPlayingAudio,
-      currentPlayingSoundId: this.currentPlayingSoundId,
-      currentPlayingSoundName: this.currentPlayingSoundName,
-      volume: this.currentVolume,
-      selfMute: this.selfMute,
-      selfDeaf: this.selfDeaf,
-    };
+    return false;
   }
 
   public getGuilds(): UserGuild[] {
@@ -941,7 +887,7 @@ export class UserAccountSession {
   }
 
   public async playVoiceAudio(
-    audioSource: string | Readable,
+    audioSource: string,
     gainMultiplier: number = 1.3,
     soundTier: 'standard' | 'admin_peaks' = 'standard',
     isAdmin: boolean = false,
@@ -959,17 +905,9 @@ export class UserAccountSession {
         throw new Error('None of your connected accounts are currently in a voice channel. Connect to a voice channel first!');
       }
       let anyPlayed = false;
-      const isStream = typeof audioSource === 'object' && typeof (audioSource as any).pipe === 'function';
-
       for (const slot of activeVoiceSlots) {
         try {
-          if (isStream) {
-            const slotStream = new PassThrough();
-            (audioSource as any).pipe(slotStream);
-            await slot.playVoiceAudio(slotStream, cappedGain, soundId, soundName);
-          } else {
-            await slot.playVoiceAudio(audioSource, cappedGain, soundId, soundName);
-          }
+          await slot.playVoiceAudio(audioSource, cappedGain, soundId, soundName);
           anyPlayed = true;
         } catch (e: any) {
           console.warn(`[Joint Broadcast] Slot ${slot.slotIndex + 1} play note:`, e.message);
@@ -1006,11 +944,6 @@ export class UserAccountSession {
   public getProfile(slotIndex?: number): UserAccountProfile | null {
     const slot = slotIndex !== undefined && slotIndex >= 0 ? this.getSlot(slotIndex) : this.getActiveSlot();
     return slot.profile;
-  }
-
-  public getDebugVoiceInfo(slotIndex?: number): any {
-    const slot = slotIndex !== undefined && slotIndex >= 0 ? this.getSlot(slotIndex) : this.getActiveSlot();
-    return slot.getDebugVoiceInfo();
   }
 
   public getVoiceState(slotIndex?: number): VoiceStateInfo {

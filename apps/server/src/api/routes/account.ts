@@ -611,54 +611,6 @@ router.post('/voice/play-sound', async (req, res) => {
   }
 });
 
-// Voice: Instant Live Speak Broadcast (Mic Recording / Live Voice Output)
-router.post('/voice/live-speak', upload.single('audio'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ success: false, error: 'No audio stream or recording received' });
-    }
-
-    const { boost, gain, mode, broadcast } = req.body;
-    const slotIndex = getTargetSlotIndex(req);
-    const isJoint = mode === 'joint' || broadcast === 'true' || broadcast === true || broadcast === undefined;
-    const tenant = await resolveTenantSession(req);
-
-    const parsedGain = gain ? parseFloat(gain) : (boost === 'true' || boost === true ? 3.5 : 2.8);
-    const filePath = req.file.path;
-
-    const playing = await tenant.session.playVoiceAudio(
-      filePath,
-      parsedGain,
-      tenant.soundTier,
-      tenant.isAdmin,
-      isJoint,
-      slotIndex,
-      'live-mic',
-      '🎤 Speak Out (Live Mic)'
-    );
-
-    // Auto cleanup recording file after playback or 45 seconds
-    setTimeout(() => {
-      try {
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-        }
-      } catch {}
-    }, 45000);
-
-    res.json({
-      success: playing,
-      data: {
-        voiceState: tenant.session.getVoiceState(slotIndex),
-        broadcast: isJoint,
-        gain: parsedGain,
-      },
-    });
-  } catch (err: any) {
-    res.status(400).json({ success: false, error: err.message });
-  }
-});
-
 // Voice: Stop Audio in VC
 router.post('/voice/stop', async (req, res) => {
   const { mode, broadcast } = req.body || {};
@@ -674,18 +626,6 @@ router.get('/voice/state', async (req, res) => {
   const slotIndex = getTargetSlotIndex(req);
   const tenant = await resolveTenantSession(req);
   res.json({ success: true, data: tenant.session.getVoiceState(slotIndex) });
-});
-
-// Voice: Get Deep Debug Diagnostics
-router.get('/voice/debug', async (req, res) => {
-  try {
-    const slotIndex = getTargetSlotIndex(req);
-    const tenant = await resolveTenantSession(req);
-    const debug = tenant.session.getDebugVoiceInfo(slotIndex);
-    res.json({ success: true, data: debug });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
-  }
 });
 
 // --- AUDIO UPLOADS & SOUNDBOARD API ---
