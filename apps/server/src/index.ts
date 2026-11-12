@@ -74,7 +74,7 @@ app.get('/', (req, res) => {
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    version: '1.3.2-clean-original-soundboard',
+    version: '1.3.3-dave-ready-soundboard-fix',
     uptime: Math.round(process.uptime()),
     timestamp: new Date().toISOString(),
     bot_online: botService.isConnected,
